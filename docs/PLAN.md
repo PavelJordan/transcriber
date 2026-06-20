@@ -50,12 +50,13 @@ progress instead of scraping stderr. Each line of stdout is one JSON object:
 {"type":"start","device":"cuda","model":"large-v3","language":"cs","duration":3600}
 {"type":"segment","start":12.0,"end":15.4,"text":"..."}
 {"type":"done","txt":"…","srt":"…","vtt":"…"}
-{"type":"error","message":"…"}
 ```
 
 The app spawns it, streams segments into the UI live, and writes the `.txt`/
 `.srt`/`.vtt` next to the source (current behaviour, unchanged). Human-readable
-stderr logging stays as-is for when the script is run by hand.
+stderr logging stays as-is for when the script is run by hand. Failures need no
+JSON event: the script logs to stderr and exits non-zero, and the spawning Rust
+command surfaces that stderr to the UI as a single error — one channel, not two.
 
 ## The report prompt
 
@@ -103,15 +104,35 @@ Each phase ends with a review pass (`docs/REVIEW.md`).
 
 ## Status
 
-**Phase 1 complete.** ✅ Tauri 2 + React 19 + TS + Vite scaffolded in `app/`,
-Tailwind v4 (`@tailwindcss/vite`) + shadcn (radix-nova, `@/` alias) wired. One styled
-placeholder screen (`app/src/App.tsx`): app name, pitch, a "Choose a recording"
-button (shadcn `Button`), and the "Audio never leaves your device" line. Scaffold
-cruft stripped: greet command, Vite/React/Tauri logos, `App.css`, unused
-`tauri-plugin-opener` + `serde`/`serde_json`. `npm run build` green; **window
-launches and renders** (`npm run tauri dev`, verified by the owner). Reviewed on
-Opus high (all three agents) — clean; consensus nits applied. Reviewer default
-bumped to `model: opus`, high thinking.
+**Phase 2 complete.** ✅ The Transcribe screen works end-to-end against the local
+`.venv` sidecar. (Phase 1 scaffold — Tauri 2 + React 19 + TS + Tailwind v4 + shadcn
+in `app/` — remains as described in git history.)
+
+What landed in Phase 2:
+- **`transcribe.py --json`** — one JSON object per stdout line (`start` / `segment`
+  / `done`); human-readable stderr path untouched; no new deps. `--device` now
+  takes `auto`/`cuda`/`cpu` and derives `compute_type` (cpu→`int8`, else
+  `int8_float16`), keeping the existing GPU→CPU load fallback. Still writes
+  `.txt`/`.srt`/`.vtt` next to the source.
+- **Rust `transcribe` command** (`app/src-tauri/src/lib.rs`) — thin: spawns
+  `.venv/bin/python transcribe.py … --json` via `tauri-plugin-shell`, forwards each
+  stdout line as a `transcribe://event`, returns `Err(stderr)` on non-zero exit
+  (the single error channel). Repo root from `CARGO_MANIFEST_DIR` — **dev-only**;
+  the shipping sidecar path is a Phase 5 decision. Added `tauri-plugin-dialog`
+  (+ `dialog:default` capability) for the file picker. No `serde_json` needed.
+- **`app/src/Transcribe.tsx`** — whole-window drag-drop + Browse, Model/Device/
+  Language selects (shadcn `select` added), live segment log with detected
+  language/duration, privacy badge, "saved next to your recording" on done. Errors
+  surface in a destructive box from the invoke rejection.
+
+Verified: `npm run build` (tsc) green, `cargo check` green, sidecar `--json`
+contract checked on a clipped sample (start/segment/done + files written). Reviewed
+by all three agents (Opus high); applied the consensus fixes — **consume** the
+`start` event instead of leaving it dead, store only the `.txt` path actually
+displayed, and **collapse to one error channel** (dropped the redundant `error`
+JSON event; failures arrive via the invoke rejection). **Not visually run this
+session** — owner should confirm the window/UX with `cd app && npm run tauri dev`,
+then run a real (large-v3 / GPU) transcription end-to-end.
 
 The Tauri Linux system libs are installed on this machine now, so `npm run tauri
 dev` works directly. On a fresh box, install first:
@@ -125,18 +146,18 @@ the local SSH keys aren't authorized for the `hissetta` namespace, but the `glab
 token is. Already configured in this clone (`credential.helper = !glab auth
 git-credential`). Don't switch the remote back to SSH.
 
-**Next action — Phase 2 (Transcribe), in a new session.** Concretely:
-  1. Add `--json` mode to `transcribe.py`: one JSON object per stdout line
-     (`start` / `segment` / `done` / `error`, per "Sidecar contract" above). Leave
-     the human-readable stderr path untouched; no new Python deps.
-  2. Register `transcribe.py` as a Tauri sidecar; spawn it from Rust and stream
-     stdout lines to the frontend. Dev runs against the existing `.venv` (the
-     shipping runtime is a Phase 5 decision). Re-adds `serde`/`serde_json` for the
-     command payloads.
-  3. Build the Transcribe screen: file drop, Model / Device / Language dropdowns,
-     live segment log, privacy badge, transcript shown on done.
-  4. Keep writing `.txt`/`.srt`/`.vtt` next to the source (current behavior).
-  End with a reviewer pass (Opus high) before marking Phase 2 done.
+**Next action — Phase 3 (Report), in a new session.** Concretely:
+  1. Store the Anthropic token in the OS keychain (Rust commands to save/load).
+  2. Stream a report from the Anthropic API — default Sonnet 4.6, switchable to
+     Haiku 4.5 / Opus 4.8. Only the transcript text + the prompt are sent.
+  3. Build the Report screen: model picker, editable prompt seeded from the
+     `0608`/`0617` example reports (the quality bar), live Markdown preview, copy,
+     export `.md`. Explicit "only transcript text is sent" line.
+  End with a reviewer pass (Opus high) before marking Phase 3 done.
+
+_Open Phase 2 follow-up:_ the sidecar resolves the `.venv` python + script via the
+compile-time `CARGO_MANIFEST_DIR`, so it only runs from this dev checkout. Packaging
+(Phase 5) must replace that path resolution.
 
 _Update this section at the end of every working session: what's done, what's
 half-done, what's the next concrete action._
