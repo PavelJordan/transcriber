@@ -103,7 +103,13 @@ Each phase ends with a review pass (`docs/REVIEW.md`).
 
 ## Status
 
-**Phase 0 complete.** Docs and reviewer agents written. Nothing scaffolded yet.
+**Phase 0 complete.** Docs + reviewer agents written; repo pushed to
+`gitlab.com:hissetta/transcriber` (`main`). Nothing scaffolded yet.
+
+**Git note:** push over **HTTPS with the `glab` credential helper**, not SSH —
+the local SSH keys aren't authorized for the `hissetta` namespace, but the `glab`
+token is. Already configured in this clone (`credential.helper = !glab auth
+git-credential`). Don't switch the remote back to SSH.
 
 **Next action:** Phase 1 — scaffold the Tauri app in `app/`.
 

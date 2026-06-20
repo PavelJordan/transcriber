@@ -73,6 +73,9 @@ agent harness). They read different context files, so we keep one source of trut
 
 ## Current status
 
-**Not scaffolded yet.** Planning + docs done. Next action is Phase 1 in
-`docs/PLAN.md`. Keep the **Status** section of that file updated as the source of
-truth across sessions.
+**Not scaffolded yet.** Planning + docs done, repo pushed to
+`gitlab.com:hissetta/transcriber`. Next action is Phase 1 in `docs/PLAN.md`. Keep
+the **Status** section of that file updated as the source of truth across sessions.
+
+> Git: push over **HTTPS via the `glab` credential helper**, not SSH (the local
+> SSH keys aren't authorized for the `hissetta` namespace). Already configured.
