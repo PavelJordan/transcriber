@@ -2,6 +2,7 @@
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
 @import "@fontsource-variable/geist";
+@plugin "@tailwindcss/typography";
 
 @custom-variant dark (&:is(.dark *));
 
@@ -127,4 +128,21 @@
   html {
     @apply font-sans;
     }
+}
+
+/* PDF export prints this hidden, chrome-free copy of the report — see Report.tsx. */
+.print-only {
+  display: none;
+}
+
+@media print {
+  @page {
+    margin: 1.5cm;
+  }
+  #root {
+    display: none;
+  }
+  .print-only {
+    display: block;
+  }
 }

@@ -20,4 +20,7 @@ tauri-build = { version = "2", features = [] }
 tauri = { version = "2", features = [] }
 tauri-plugin-shell = "2"
 tauri-plugin-dialog = "2"
+keyring = "4"
+serde_json = "1.0.150"
+reqwest = { version = "0.13", default-features = false, features = ["rustls", "json"] }
 

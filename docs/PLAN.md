@@ -12,7 +12,7 @@ must produce a real installer, not just run from a dev shell.
 ## The pipeline
 
 ```
- recording.mp4 ──▶ transcribe.py (Whisper, LOCAL) ──▶ transcript.txt
+ recording.mp4 ──▶ transcribe.py (Whisper, LOCAL) ──▶ transcript (in app)
                                                           │
                                           user clicks "Generate"
                                                           ▼
@@ -49,14 +49,17 @@ progress instead of scraping stderr. Each line of stdout is one JSON object:
 ```
 {"type":"start","device":"cuda","model":"large-v3","language":"cs","duration":3600}
 {"type":"segment","start":12.0,"end":15.4,"text":"..."}
-{"type":"done","txt":"…","srt":"…","vtt":"…"}
+{"type":"done"}
 ```
 
-The app spawns it, streams segments into the UI live, and writes the `.txt`/
-`.srt`/`.vtt` next to the source (current behaviour, unchanged). Human-readable
-stderr logging stays as-is for when the script is run by hand. Failures need no
-JSON event: the script logs to stderr and exits non-zero, and the spawning Rust
-command surfaces that stderr to the UI as a single error — one channel, not two.
+The app spawns it and streams segments into the UI live; the transcript is
+assembled **in the app** from those `segment` events and handed to the Report
+screen. In `--json` (app) mode the script **writes no files** — the recording's
+folder stays clean (see Phase 3d). Run by hand *without* `--json`, the script still
+writes `.txt`/`.srt`/`.vtt` next to the source and logs human-readable progress to
+stderr, unchanged. Failures need no JSON event: the script logs to stderr and exits
+non-zero, and the spawning Rust command surfaces that stderr to the UI as a single
+error — one channel, not two.
 
 ## The report prompt
 
@@ -69,9 +72,11 @@ user tune it. Only the transcript text + the prompt go to Claude.
 
 1. **Transcribe** — file drop; Model / Device / Language dropdowns; live segment
    log; "audio never leaves your device" badge; transcript shown when done.
-2. **Report** — token field (keychain); model dropdown (Sonnet 4.6 default);
-   editable prompt; explicit "only transcript text is sent" line; streamed
-   Markdown report with live preview, copy, and **export as `.md` or `.pdf`**.
+2. **Report** — two paths off the same editable prompt: **(a) API** — token field
+   (keychain), model dropdown (Sonnet 4.6 default), streamed Markdown report with
+   live preview, copy, and **export as `.md` or `.pdf`**; **(b) no API** — a
+   **Copy prompt** button that puts the prompt + transcript on the clipboard to
+   paste into any chat AI. Explicit "only transcript text leaves the device" line.
 3. **Settings** — API token, default model, default device, the prompt template.
 
 ## Phased build
@@ -83,12 +88,31 @@ Each phase ends with a review pass (`docs/REVIEW.md`).
   One styled placeholder screen; window opens and renders. Reviewed (Opus high).
 - **Phase 2 — Transcribe.** `--json` mode in `transcribe.py`; wire it as a
   sidecar; Transcribe screen with dropdowns + live log; files written next to source.
-- **Phase 3 — Report.** Keychain token storage; Anthropic streaming call; Report
+- **Phase 3 — Report.** ✅ Keychain token storage; Anthropic streaming call; Report
   screen with model picker, editable prompt, live Markdown preview, export `.md`.
-- **Phase 3b — PDF export.** Render the report Markdown → PDF. We already render
+- **Phase 3b — PDF export.** ✅ Render the report Markdown → PDF. We already render
   Markdown → HTML for the preview, so the cheapest path is reusing that HTML with
   one print stylesheet: the webview's print-to-PDF, or a small html→pdf step. No
   new heavy toolchain (no LaTeX/pandoc) unless a phase actually needs it.
+- **Phase 3c — Copy-prompt (no-API path).** ✅ A **Copy prompt** button that puts the
+  editable prompt + the transcript on the clipboard as one paste-ready block, so
+  users without an Anthropic key (or who don't want per-token billing) can paste it
+  into ChatGPT / Claude.ai / Gemini and get the same report. This is the original
+  manual flow (`transcribe.py` → paste into a chat), made one click. Makes the
+  **token optional**: only the API "Generate" path needs a key; "Copy prompt" works
+  with none. Privacy is unchanged — still only transcript text leaves the device,
+  still user-initiated (copy, then the user pastes). Cheap: a clipboard concat in
+  TS, no Rust, no new deps.
+- **Phase 3d — No workspace clutter.** Transcribing from the app must **not** drop
+  files in the user's folders. The app already builds the transcript in memory from
+  the `segment` events, so `--json` mode stops writing `.txt`/`.srt`/`.vtt`; the
+  `done` event loses its file paths and the Transcribe screen drops its "saved next
+  to your recording" line. In app mode the script doesn't even **compute**
+  `.srt`/`.vtt` — they're only useful as subtitle files the app never surfaces, so
+  no speculative work (revive only if a phase actually needs subtitles). The
+  standalone script (run by hand, no `--json`) keeps writing all three. If someone
+  wants the transcript on disk, add an explicit "Save transcript" later — don't
+  write it silently.
 - **Phase 4 — Polish.** Layout, empty/error/loading states, the privacy badges,
   the Settings panel. Make it pretty.
 - **Phase 5 — Package.** Build installers. If Python+CUDA bundling is too painful
@@ -100,39 +124,95 @@ Each phase ends with a review pass (`docs/REVIEW.md`).
 - P3: stream tokens into the preview, or render on completion? (Lean: stream.)
 - P3b: PDF via webview print-to-PDF, or a small html→pdf lib? (Lean: reuse the
   preview HTML + a print stylesheet; pick the lib only if print quality is poor.)
+- P3c: one "Copy prompt" button (prompt + transcript), or also "Copy transcript
+  only"? (Lean: just prompt + transcript — the raw `.txt` already sits next to the
+  recording for transcript-only. Format: the prompt, a `---` separator, then the
+  transcript.) And: should a no-token user still land on the Report screen, or pick
+  the path earlier? (Lean: one Report screen, token optional; don't add a chooser.)
+- P3d: write nothing by default in app mode, or offer an opt-in "Save transcript"?
+  (Lean: nothing by default; add an explicit save only if asked.)
 - P4: light/dark, or follow OS theme? (Lean: follow OS.)
 
 ## Status
 
-**Phase 2 complete.** ✅ The Transcribe screen works end-to-end against the local
-`.venv` sidecar. (Phase 1 scaffold — Tauri 2 + React 19 + TS + Tailwind v4 + shadcn
-in `app/` — remains as described in git history.)
+**Phase 3 + 3b + 3c complete.** ✅ The Report screen turns a transcript into a
+streamed Markdown report via the Anthropic API and exports it as `.md` or PDF; the
+token lives in the OS keychain and never enters the webview. Phase 3c adds the
+no-API path: a **Copy prompt** button (prompt + transcript on the clipboard) makes
+the token optional. (Phase 2 — the Transcribe screen against the local `.venv`
+sidecar — and the Phase 1 scaffold remain as in git history.)
 
-What landed in Phase 2:
-- **`transcribe.py --json`** — one JSON object per stdout line (`start` / `segment`
-  / `done`); human-readable stderr path untouched; no new deps. `--device` now
-  takes `auto`/`cuda`/`cpu` and derives `compute_type` (cpu→`int8`, else
-  `int8_float16`), keeping the existing GPU→CPU load fallback. Still writes
-  `.txt`/`.srt`/`.vtt` next to the source.
-- **Rust `transcribe` command** (`app/src-tauri/src/lib.rs`) — thin: spawns
-  `.venv/bin/python transcribe.py … --json` via `tauri-plugin-shell`, forwards each
-  stdout line as a `transcribe://event`, returns `Err(stderr)` on non-zero exit
-  (the single error channel). Repo root from `CARGO_MANIFEST_DIR` — **dev-only**;
-  the shipping sidecar path is a Phase 5 decision. Added `tauri-plugin-dialog`
-  (+ `dialog:default` capability) for the file picker. No `serde_json` needed.
-- **`app/src/Transcribe.tsx`** — whole-window drag-drop + Browse, Model/Device/
-  Language selects (shadcn `select` added), live segment log with detected
-  language/duration, privacy badge, "saved next to your recording" on done. Errors
-  surface in a destructive box from the invoke rejection.
+What landed in Phase 3:
+- **Keychain (Rust, `keyring` v4).** `save_token` / `has_token` commands store the
+  Anthropic token under the app id. The token is read in Rust at generation time
+  and **never crosses into the webview** — JS only ever *writes* a token or checks
+  presence (`has_token` returns a bool, never the value).
+- **Anthropic streaming (Rust `generate_report`).** POSTs `system`=prompt +
+  `messages`=[transcript] to `/v1/messages` with `stream:true`, parses the SSE
+  byte stream (buffering raw bytes, decoding only whole lines so split multibyte
+  UTF-8 is never corrupted), and forwards each text delta as `report://delta`.
+  Same shape as `transcribe`: events for streaming, **one error channel** (the
+  invoke rejection — HTTP errors and stream `error` events both surface there).
+  `reqwest 0.13` pinned to Tauri's version so only one copy compiles (rustls, no
+  system OpenSSL). `export_report` writes the `.md` at a dialog-picked path.
+- **`app/src/Report.tsx`.** Token field (password, → keychain) with a saved/Change
+  state; model picker (Sonnet 4.6 default / Haiku 4.5 / Opus 4.8); editable prompt
+  in a `<details>`; the transcript in a `<details>` labelled "only this is sent";
+  live Markdown preview (`react-markdown` + `remark-gfm`, Tailwind `prose`); copy
+  and **Export .md**. `App.tsx` routes Transcribe → Report on "Write report"
+  (transcript = the joined segments, identical to the saved `.txt`).
+- **PDF export (Phase 3b).** No PDF lib: an `@media print` stylesheet + the
+  webview's `window.print()` (OS "Save as PDF"). "Export PDF" renders a hidden,
+  theme-free `prose` copy of the report into `document.body` via a React portal;
+  print hides `#root` and shows that copy, so the PDF is the report alone —
+  paginated, no app chrome, robust to future layout nesting. Copy/Export are
+  disabled while streaming so you can't export a half-written report.
 
-Verified: `npm run build` (tsc) green, `cargo check` green, sidecar `--json`
-contract checked on a clipped sample (start/segment/done + files written). Reviewed
-by all three agents (Opus high); applied the consensus fixes — **consume** the
-`start` event instead of leaving it dead, store only the `.txt` path actually
-displayed, and **collapse to one error channel** (dropped the redundant `error`
-JSON event; failures arrive via the invoke rejection). **Not visually run this
-session** — owner should confirm the window/UX with `cd app && npm run tauri dev`,
-then run a real (large-v3 / GPU) transcription end-to-end.
+What landed in Phase 3c (no-API / copy-prompt path):
+- **`copyPrompt` in `Report.tsx`.** Writes ``${prompt}\n\n---\n\n${transcript}``
+  to the clipboard (prompt, `---` separator, transcript) with a `promptCopied`
+  feedback state — a faithful mirror of the existing `copyReport`. Pure TS, no
+  Rust, no new deps, exactly as the plan called for.
+- **"Copy prompt" button** (outline) sits beside the primary "Generate report" in
+  the action row. It needs only a non-empty transcript (`disabled={!transcript
+  .trim()}`) — **no token required**; only "Generate report" still gates on
+  `tokenSaved`. The token label now reads "Anthropic API token (optional)".
+- **Privacy unchanged:** still only transcript text leaves the device, still
+  user-initiated (copy, then the user pastes into ChatGPT / Claude.ai / Gemini).
+- Decisions taken from the plan's open questions: **one** button (prompt +
+  transcript, not a separate transcript-only copy), and **one** Report screen with
+  the token optional (no path-chooser). The two reviewer nits — define-order of
+  `copyPrompt` and an optional `// why` on the flatten format — were both weighed
+  and skipped as cosmetic/no-product-value (the `---` block is the plan's spec and
+  obvious for a chat box with no system slot).
+- Verified: `npm run build` (tsc + vite) green. Reviewed by all three agents
+  (`minimalist` / `consistency` / `grug`, Opus high) — unanimous "ship it", no
+  blocking findings. The clipboard mechanism (`navigator.clipboard.writeText`) is
+  the same one already live-verified for "Copy" report in Phase 3, so the path is
+  proven; a live click-through of the new button is worth a glance next dev run.
+
+Verified: `npm run build` (tsc + vite) green, `cargo check`/`clippy` green (only a
+pre-existing Phase 2 `collapsible_match` warning, left out of scope). Reviewed by
+all three agents (Opus high) for both Phase 3 and 3b; applied the consensus fixes
+— renamed bare verbs (`runReport`/`copyReport`/`parse_delta`), wrapped the
+clipboard + export edges in try/catch, flattened the SSE loop, **deduped reqwest**
+to Tauri's 0.13 (was pulling a second copy), and **portaled the print copy** so PDF
+export doesn't couple to the DOM shape. **Live end-to-end run confirmed working
+(2026-06-20):** transcribe → keychain token → streamed report → export `.md` and
+PDF all verified by the owner.
+
+_Phase 3 notes:_
+- **Model ids confirmed working in the live run** (`claude-sonnet-4-6` /
+  `-haiku-4-5` / `-opus-4-8`, in `Report.tsx`). If Anthropic renames one later, a
+  wrong id surfaces as a clear "Anthropic API error (404)" in the UI.
+- `max_tokens` is 8192 (safe across models; a summary fits). Raise if a long
+  meeting's report ever truncates.
+- Keychain needs a running Secret Service on Linux (present on this desktop).
+
+Phase 2 (`transcribe.py --json` + the Rust `transcribe` command + the Transcribe
+screen) and the Phase 1 scaffold are described in git history. Phase 2's own caveat
+still stands: it was **not visually run** when written — confirm the window/UX and
+a real (large-v3 / GPU) transcription with `cd app && npm run tauri dev`.
 
 The Tauri Linux system libs are installed on this machine now, so `npm run tauri
 dev` works directly. On a fresh box, install first:
@@ -146,14 +226,14 @@ the local SSH keys aren't authorized for the `hissetta` namespace, but the `glab
 token is. Already configured in this clone (`credential.helper = !glab auth
 git-credential`). Don't switch the remote back to SSH.
 
-**Next action — Phase 3 (Report), in a new session.** Concretely:
-  1. Store the Anthropic token in the OS keychain (Rust commands to save/load).
-  2. Stream a report from the Anthropic API — default Sonnet 4.6, switchable to
-     Haiku 4.5 / Opus 4.8. Only the transcript text + the prompt are sent.
-  3. Build the Report screen: model picker, editable prompt seeded from the
-     `0608`/`0617` example reports (the quality bar), live Markdown preview, copy,
-     export `.md`. Explicit "only transcript text is sent" line.
-  End with a reviewer pass (Opus high) before marking Phase 3 done.
+**Next action — Phase 3d, then Phase 4 (polish), in a new session.**
+Phase 3d: stop the
+sidecar writing `.txt`/`.srt`/`.vtt` in app mode (transcript stays in-app), so the
+user's folders stay clean. Phase 4: layout, empty/error/loading states, the
+privacy badges, and the real
+**Settings panel** (absorbs the Report screen's inline token + prompt fields;
+persist the edited prompt + default model). Follow OS light/dark. (The full API
+pipeline is already live-verified — see above.) End with a reviewer pass.
 
 _Open Phase 2 follow-up:_ the sidecar resolves the `.venv` python + script via the
 compile-time `CARGO_MANIFEST_DIR`, so it only runs from this dev checkout. Packaging

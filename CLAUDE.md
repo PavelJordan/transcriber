@@ -73,11 +73,20 @@ agent harness). They read different context files, so we keep one source of trut
 
 ## Current status
 
-**Phase 1 done.** Tauri 2 + React + TS + Tailwind v4 + shadcn live in `app/` with one
-styled placeholder screen; `npm run build` green and the window launches
-(`cd app && npm run tauri dev`). Reviewed on Opus high. See the **Status** section
-of `docs/PLAN.md` — the source of truth across sessions. Next: Phase 2 (sidecar +
-Transcribe screen).
+**Phase 3 + 3b + 3c done.** The full pipeline works in `app/`: Transcribe screen
+(sidecar, live log) → Report screen (keychain token, streamed Anthropic report,
+Markdown preview, export `.md` **and PDF**). `npm run build` + `cargo check`/`clippy`
+green; reviewed by the three agents on Opus high. The token lives in the OS keychain
+and never enters the webview; PDF export uses `window.print()` (OS "Save as PDF"),
+no PDF lib. **Live end-to-end run confirmed working** (transcribe → report → `.md`
++ PDF). Phase 3c added the no-API path: a **Copy prompt** button puts the editable
+prompt + transcript (`---` separator) on the clipboard, so users without an API
+key can paste into their own chat AI — the token is now **optional** (only
+"Generate report" needs it). Pure TS, no new deps, build green, reviewed (Opus
+high, unanimous ship). See the **Status** section of `docs/PLAN.md` — the source
+of truth across sessions. Next: Phase 3d (sidecar stops writing
+`.txt`/`.srt`/`.vtt` in app mode — no workspace clutter), then Phase 4 (polish +
+Settings).
 
 > Git: push over **HTTPS via the `glab` credential helper**, not SSH (the local
 > SSH keys aren't authorized for the `hissetta` namespace). Already configured.

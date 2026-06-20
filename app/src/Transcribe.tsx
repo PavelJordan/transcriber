@@ -3,7 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { open } from "@tauri-apps/plugin-dialog";
-import { CheckCircle2, FileAudio, Loader2, ShieldCheck, Upload } from "lucide-react";
+import { ArrowRight, CheckCircle2, FileAudio, Loader2, ShieldCheck, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Select,
@@ -44,7 +44,7 @@ function fileName(path: string): string {
   return path.split(/[/\\]/).pop() ?? path;
 }
 
-function Transcribe() {
+function Transcribe({ onReport }: { onReport: (transcript: string) => void }) {
   const [file, setFile] = useState<string | null>(null);
   const [model, setModel] = useState("large-v3");
   const [device, setDevice] = useState("auto");
@@ -196,9 +196,15 @@ function Transcribe() {
       )}
 
       {savedTxt && (
-        <div className="flex items-center gap-2 text-sm text-muted-foreground">
-          <CheckCircle2 className="size-4 text-foreground" />
-          Saved next to your recording: {fileName(savedTxt)}, .srt, .vtt
+        <div className="flex items-center justify-between gap-4">
+          <span className="flex items-center gap-2 text-sm text-muted-foreground">
+            <CheckCircle2 className="size-4 text-foreground" />
+            Saved next to your recording: {fileName(savedTxt)}, .srt, .vtt
+          </span>
+          <Button onClick={() => onReport(segments.map((segment) => segment.text).join("\n"))}>
+            Write report
+            <ArrowRight className="size-4" />
+          </Button>
         </div>
       )}
     </main>
