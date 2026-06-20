@@ -103,7 +103,7 @@ Each phase ends with a review pass (`docs/REVIEW.md`).
   with none. Privacy is unchanged — still only transcript text leaves the device,
   still user-initiated (copy, then the user pastes). Cheap: a clipboard concat in
   TS, no Rust, no new deps.
-- **Phase 3d — No workspace clutter.** Transcribing from the app must **not** drop
+- **Phase 3d — No workspace clutter.** ✅ Transcribing from the app must **not** drop
   files in the user's folders. The app already builds the transcript in memory from
   the `segment` events, so `--json` mode stops writing `.txt`/`.srt`/`.vtt`; the
   `done` event loses its file paths and the Transcribe screen drops its "saved next
@@ -135,12 +135,39 @@ Each phase ends with a review pass (`docs/REVIEW.md`).
 
 ## Status
 
-**Phase 3 + 3b + 3c complete.** ✅ The Report screen turns a transcript into a
+**Phase 3 + 3b + 3c + 3d complete.** ✅ The Report screen turns a transcript into a
 streamed Markdown report via the Anthropic API and exports it as `.md` or PDF; the
 token lives in the OS keychain and never enters the webview. Phase 3c adds the
 no-API path: a **Copy prompt** button (prompt + transcript on the clipboard) makes
-the token optional. (Phase 2 — the Transcribe screen against the local `.venv`
-sidecar — and the Phase 1 scaffold remain as in git history.)
+the token optional. Phase 3d stops the sidecar cluttering the user's folders: in
+`--json` (app) mode it writes nothing — the transcript lives only in the app.
+(Phase 2 — the Transcribe screen against the local `.venv` sidecar — and the
+Phase 1 scaffold remain as in git history.)
+
+What landed in Phase 3d (no workspace clutter):
+- **`transcribe.py` branches on `--json`.** App mode iterates segments, emits a
+  `segment` event each, then a bare `{"type":"done"}` — **no files written, no
+  `.srt`/`.vtt` even computed** (the app never surfaces subtitles, so it's pure
+  speculative work). The standalone path (no `--json`) is byte-for-byte unchanged:
+  it still writes `.txt`/`.srt`/`.vtt` next to the source and logs per-segment
+  progress to stderr. The two paths are separate branches by design (reviewers
+  confirmed: don't merge — they do different work).
+- **`done` event slimmed.** Lost its `txt`/`srt`/`vtt` paths; `SidecarEvent`'s
+  `done` is now `{ type: "done" }` and the `Transcribe.tsx` `savedTxt` state (+ its
+  set/reset sites) is gone — illegal states removed, no orphans. The Rust
+  `transcribe` command is untouched (it only forwards stdout lines).
+- **Transcribe screen.** The "Saved next to your recording: …" line is replaced by
+  a "Transcript ready — it stays in the app." confirmation, gated on `status ===
+  "done"`; the **Write report** button is unchanged (transcript = joined segments).
+- **No silent disk writes by default.** If someone later wants the transcript on
+  disk, add an explicit "Save transcript" — don't write it silently (plan's call).
+- Verified: `npm run build` (tsc + vite) and `cargo check` green; `transcribe.py`
+  parses. Reviewed by `minimalist` + `consistency` (Opus high) — unanimous "ship
+  it"; the one shared nit (comment restated the code) was applied (trimmed to the
+  *why*). `grug` couldn't run — Anthropic API `overloaded_error` on every retry
+  (transient infra, not the code); rerun it next session for completeness.
+  **Not yet visually run** — confirm the new "Transcript ready" line and that no
+  files appear next to the source with `cd app && npm run tauri dev`.
 
 What landed in Phase 3:
 - **Keychain (Rust, `keyring` v4).** `save_token` / `has_token` commands store the
@@ -226,10 +253,8 @@ the local SSH keys aren't authorized for the `hissetta` namespace, but the `glab
 token is. Already configured in this clone (`credential.helper = !glab auth
 git-credential`). Don't switch the remote back to SSH.
 
-**Next action — Phase 3d, then Phase 4 (polish), in a new session.**
-Phase 3d: stop the
-sidecar writing `.txt`/`.srt`/`.vtt` in app mode (transcript stays in-app), so the
-user's folders stay clean. Phase 4: layout, empty/error/loading states, the
+**Next action — Phase 4 (polish), in a new session.**
+Phase 4: layout, empty/error/loading states, the
 privacy badges, and the real
 **Settings panel** (absorbs the Report screen's inline token + prompt fields;
 persist the edited prompt + default model). Follow OS light/dark. (The full API

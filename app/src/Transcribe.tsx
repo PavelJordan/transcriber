@@ -16,7 +16,7 @@ import {
 type SidecarEvent =
   | { type: "start"; device: string; model: string; language: string; duration: number }
   | { type: "segment"; start: number; end: number; text: string }
-  | { type: "done"; txt: string; srt: string; vtt: string };
+  | { type: "done" };
 
 type Segment = { start: number; text: string };
 type Status = "idle" | "running" | "done" | "error";
@@ -53,7 +53,6 @@ function Transcribe({ onReport }: { onReport: (transcript: string) => void }) {
   const [status, setStatus] = useState<Status>("idle");
   const [segments, setSegments] = useState<Segment[]>([]);
   const [info, setInfo] = useState<{ language: string; duration: number } | null>(null);
-  const [savedTxt, setSavedTxt] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [dragging, setDragging] = useState(false);
 
@@ -67,7 +66,6 @@ function Transcribe({ onReport }: { onReport: (transcript: string) => void }) {
       } else if (event.type === "segment") {
         setSegments((prev) => [...prev, { start: event.start, text: event.text }]);
       } else if (event.type === "done") {
-        setSavedTxt(event.txt);
         setStatus("done");
       }
     });
@@ -109,7 +107,6 @@ function Transcribe({ onReport }: { onReport: (transcript: string) => void }) {
     setStatus("running");
     setSegments([]);
     setInfo(null);
-    setSavedTxt(null);
     setError(null);
     try {
       await invoke("transcribe", {
@@ -195,11 +192,11 @@ function Transcribe({ onReport }: { onReport: (transcript: string) => void }) {
         </div>
       )}
 
-      {savedTxt && (
+      {status === "done" && (
         <div className="flex items-center justify-between gap-4">
           <span className="flex items-center gap-2 text-sm text-muted-foreground">
             <CheckCircle2 className="size-4 text-foreground" />
-            Saved next to your recording: {fileName(savedTxt)}, .srt, .vtt
+            Transcript ready — it stays in the app.
           </span>
           <Button onClick={() => onReport(segments.map((segment) => segment.text).join("\n"))}>
             Write report

@@ -55,7 +55,7 @@ def main() -> int:
     p.add_argument("--compute-type", default=None,
                    help="e.g. int8_float16 (GPU, low VRAM), float16, int8 (CPU)")
     p.add_argument("--json", action="store_true",
-                   help="Emit one JSON event per stdout line (for the desktop app)")
+                   help="Emit one JSON event per stdout line and write no files (for the desktop app)")
     args = p.parse_args()
 
     def emit(event: dict) -> None:
@@ -89,25 +89,27 @@ def main() -> int:
     emit({"type": "start", "device": device, "model": args.model,
           "language": info.language, "duration": info.duration})
 
-    txt = src.with_suffix(".txt")
-    srt = src.with_suffix(".srt")
-    vtt = src.with_suffix(".vtt")
+    if args.json:
+        # The app reconstructs the transcript from these events; files would be redundant.
+        for seg in segments:
+            emit({"type": "segment", "start": seg.start, "end": seg.end, "text": seg.text.strip()})
+        emit({"type": "done"})
+    else:
+        txt = src.with_suffix(".txt")
+        srt = src.with_suffix(".srt")
+        vtt = src.with_suffix(".vtt")
+        with txt.open("w", encoding="utf-8") as ftxt, \
+             srt.open("w", encoding="utf-8") as fsrt, \
+             vtt.open("w", encoding="utf-8") as fvtt:
+            fvtt.write("WEBVTT\n\n")
+            for i, seg in enumerate(segments, 1):
+                text = seg.text.strip()
+                ftxt.write(text + "\n")
+                fsrt.write(f"{i}\n{fmt_ts(seg.start)} --> {fmt_ts(seg.end)}\n{text}\n\n")
+                fvtt.write(f"{fmt_ts(seg.start, '.')} --> {fmt_ts(seg.end, '.')}\n{text}\n\n")
+                print(f"[{fmt_ts(seg.start)}] {text}", file=sys.stderr, flush=True)
+        print(f"\nDone.\n  {txt}\n  {srt}\n  {vtt}", file=sys.stderr)
 
-    with txt.open("w", encoding="utf-8") as ftxt, \
-         srt.open("w", encoding="utf-8") as fsrt, \
-         vtt.open("w", encoding="utf-8") as fvtt:
-        fvtt.write("WEBVTT\n\n")
-        for i, seg in enumerate(segments, 1):
-            text = seg.text.strip()
-            ftxt.write(text + "\n")
-            fsrt.write(f"{i}\n{fmt_ts(seg.start)} --> {fmt_ts(seg.end)}\n{text}\n\n")
-            fvtt.write(f"{fmt_ts(seg.start, '.')} --> {fmt_ts(seg.end, '.')}\n{text}\n\n")
-            # live progress to stderr
-            print(f"[{fmt_ts(seg.start)}] {text}", file=sys.stderr, flush=True)
-            emit({"type": "segment", "start": seg.start, "end": seg.end, "text": text})
-
-    print(f"\nDone.\n  {txt}\n  {srt}\n  {vtt}", file=sys.stderr)
-    emit({"type": "done", "txt": str(txt), "srt": str(srt), "vtt": str(vtt)})
     return 0
 
 
