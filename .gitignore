@@ -1,0 +1,19 @@
+# Python env (huge, machine-specific — rebuild from requirements)
+.venv/
+__pycache__/
+*.pyc
+
+# Raw recordings — large and private; audio must never leave the device
+*.mp4
+*.mkv
+*.wav
+*.m4a
+
+# Local-only harness settings (bypass mode, personal allow rules)
+.claude/settings.local.json
+
+# Tauri / Node build output (ready for when app/ exists)
+node_modules/
+app/src-tauri/target/
+dist/
+build/
