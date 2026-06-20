@@ -73,9 +73,11 @@ agent harness). They read different context files, so we keep one source of trut
 
 ## Current status
 
-**Not scaffolded yet.** Planning + docs done, repo pushed to
-`gitlab.com:hissetta/transcriber`. Next action is Phase 1 in `docs/PLAN.md`. Keep
-the **Status** section of that file updated as the source of truth across sessions.
+**Phase 1 done.** Tauri 2 + React + TS + Tailwind v4 + shadcn live in `app/` with one
+styled placeholder screen; `npm run build` green and the window launches
+(`cd app && npm run tauri dev`). Reviewed on Opus high. See the **Status** section
+of `docs/PLAN.md` — the source of truth across sessions. Next: Phase 2 (sidecar +
+Transcribe screen).
 
 > Git: push over **HTTPS via the `glab` credential helper**, not SSH (the local
 > SSH keys aren't authorized for the `hissetta` namespace). Already configured.

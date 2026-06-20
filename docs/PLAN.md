@@ -78,8 +78,8 @@ user tune it. Only the transcript text + the prompt go to Claude.
 Each phase ends with a review pass (`docs/REVIEW.md`).
 
 - **Phase 0 — Docs.** ✅ This file, `CLAUDE.md`, `STYLE.md`, `REVIEW.md`, agents.
-- **Phase 1 — Scaffold.** Tauri 2 + React + TS + Tailwind + shadcn in `app/`.
-  Window opens, one styled placeholder screen. Runs against the existing `.venv`.
+- **Phase 1 — Scaffold.** ✅ Tauri 2 + React + TS + Tailwind + shadcn in `app/`.
+  One styled placeholder screen; window opens and renders. Reviewed (Opus high).
 - **Phase 2 — Transcribe.** `--json` mode in `transcribe.py`; wire it as a
   sidecar; Transcribe screen with dropdowns + live log; files written next to source.
 - **Phase 3 — Report.** Keychain token storage; Anthropic streaming call; Report
@@ -103,15 +103,40 @@ Each phase ends with a review pass (`docs/REVIEW.md`).
 
 ## Status
 
-**Phase 0 complete.** Docs + reviewer agents written; repo pushed to
-`gitlab.com:hissetta/transcriber` (`main`). Nothing scaffolded yet.
+**Phase 1 complete.** ✅ Tauri 2 + React 19 + TS + Vite scaffolded in `app/`,
+Tailwind v4 (`@tailwindcss/vite`) + shadcn (radix-nova, `@/` alias) wired. One styled
+placeholder screen (`app/src/App.tsx`): app name, pitch, a "Choose a recording"
+button (shadcn `Button`), and the "Audio never leaves your device" line. Scaffold
+cruft stripped: greet command, Vite/React/Tauri logos, `App.css`, unused
+`tauri-plugin-opener` + `serde`/`serde_json`. `npm run build` green; **window
+launches and renders** (`npm run tauri dev`, verified by the owner). Reviewed on
+Opus high (all three agents) — clean; consensus nits applied. Reviewer default
+bumped to `model: opus`, high thinking.
+
+The Tauri Linux system libs are installed on this machine now, so `npm run tauri
+dev` works directly. On a fresh box, install first:
+    ```
+    sudo apt install libwebkit2gtk-4.1-dev librsvg2-dev build-essential \
+      curl wget file libxdo-dev libssl-dev libayatana-appindicator3-dev
+    ```
 
 **Git note:** push over **HTTPS with the `glab` credential helper**, not SSH —
 the local SSH keys aren't authorized for the `hissetta` namespace, but the `glab`
 token is. Already configured in this clone (`credential.helper = !glab auth
 git-credential`). Don't switch the remote back to SSH.
 
-**Next action:** Phase 1 — scaffold the Tauri app in `app/`.
+**Next action — Phase 2 (Transcribe), in a new session.** Concretely:
+  1. Add `--json` mode to `transcribe.py`: one JSON object per stdout line
+     (`start` / `segment` / `done` / `error`, per "Sidecar contract" above). Leave
+     the human-readable stderr path untouched; no new Python deps.
+  2. Register `transcribe.py` as a Tauri sidecar; spawn it from Rust and stream
+     stdout lines to the frontend. Dev runs against the existing `.venv` (the
+     shipping runtime is a Phase 5 decision). Re-adds `serde`/`serde_json` for the
+     command payloads.
+  3. Build the Transcribe screen: file drop, Model / Device / Language dropdowns,
+     live segment log, privacy badge, transcript shown on done.
+  4. Keep writing `.txt`/`.srt`/`.vtt` next to the source (current behavior).
+  End with a reviewer pass (Opus high) before marking Phase 2 done.
 
 _Update this section at the end of every working session: what's done, what's
 half-done, what's the next concrete action._

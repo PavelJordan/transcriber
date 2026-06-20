@@ -15,4 +15,6 @@ Pipeline: `recording → local Whisper transcript → Claude report`.
 
 ## Status
 
-Planning done; app not scaffolded yet. Next: Phase 1 in `docs/PLAN.md`.
+Phase 1 done: Tauri + React + TS + Tailwind + shadcn in `app/` — placeholder screen,
+`npm run build` green, window launches (`cd app && npm run tauri dev`). Next: Phase 2
+(sidecar + Transcribe screen). See `docs/PLAN.md`.

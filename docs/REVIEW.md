@@ -26,6 +26,15 @@ narrow on purpose, so each one digs instead of skimming.
 They overlap a little. Good — three angles on the same code catch more than one
 broad pass.
 
+All three run on **Opus with high thinking** (frontmatter `model: opus`). Review is
+where the complexity gets caught, so it's worth the tokens. Under `pi`, run them
+headless on the subscription provider:
+
+```
+pi -p --model opus-4-8 --thinking high -t read,bash \
+  --append-system-prompt "$(cat .claude/agents/grug.md)" "<what to review>"
+```
+
 ## When to run
 
 - After finishing a meaningful chunk — a screen, the sidecar wiring, the API call.
