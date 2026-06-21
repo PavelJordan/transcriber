@@ -5,35 +5,38 @@ import { listen } from "@tauri-apps/api/event";
 import { save } from "@tauri-apps/plugin-dialog";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { ArrowLeft, Check, ClipboardCopy, Copy, Download, FileText, KeyRound, Loader2, ShieldCheck, Sparkles } from "lucide-react";
+import { ArrowLeft, Check, ClipboardCopy, Copy, Download, FileText, KeyRound, Loader2, Settings as SettingsIcon, ShieldCheck, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { DEFAULT_REPORT_PROMPT } from "./defaultPrompt";
+import { Field } from "./Field";
+import { REPORT_MODELS } from "./prefs";
+import { REPORT_TYPES, typeFor, type ReportType } from "./reportTypes";
+import type { Lang, Translate } from "./i18n";
 
 type Status = "idle" | "running" | "done" | "error";
 
-// Forward-dated model ids — verify against Anthropic's published model list.
-const MODELS = [
-  { value: "claude-sonnet-4-6", label: "Sonnet 4.6" },
-  { value: "claude-haiku-4-5", label: "Haiku 4.5" },
-  { value: "claude-opus-4-8", label: "Opus 4.8" },
-];
-
-function Report({ transcript: initialTranscript, onBack }: { transcript: string; onBack: () => void }) {
+function Report({
+  transcript: initialTranscript,
+  defaultModel,
+  defaultReportType,
+  outputLang,
+  onBack,
+  onSettings,
+  t,
+}: {
+  transcript: string;
+  defaultModel: string;
+  defaultReportType: string;
+  outputLang: Lang;
+  onBack: () => void;
+  onSettings: () => void;
+  t: Translate;
+}) {
   const [tokenSaved, setTokenSaved] = useState(false);
-  const [editingToken, setEditingToken] = useState(false);
-  const [tokenInput, setTokenInput] = useState("");
 
-  const [model, setModel] = useState(MODELS[0].value);
-  const [prompt, setPrompt] = useState(DEFAULT_REPORT_PROMPT);
+  const [model, setModel] = useState(defaultModel);
+  const [reportType, setReportType] = useState(() => typeFor(defaultReportType).value);
+  const [prompt, setPrompt] = useState(() => typeFor(defaultReportType).prompt[outputLang]);
   const [transcript, setTranscript] = useState(initialTranscript);
 
   const [status, setStatus] = useState<Status>("idle");
@@ -61,15 +64,14 @@ function Report({ transcript: initialTranscript, onBack }: { transcript: string;
     outputRef.current?.scrollTo(0, outputRef.current.scrollHeight);
   }, [report]);
 
-  async function saveToken() {
-    try {
-      await invoke("save_token", { token: tokenInput });
-      setTokenSaved(true);
-      setEditingToken(false);
-      setTokenInput("");
-    } catch (err) {
-      setError(String(err));
-    }
+  // Switching type loads that type's default prompt (dropping manual edits) and
+  // clears any report generated for the previous type.
+  function selectType(type: ReportType) {
+    setReportType(type.value);
+    setPrompt(type.prompt[outputLang]);
+    setReport("");
+    setStatus("idle");
+    setError(null);
   }
 
   async function runReport() {
@@ -123,6 +125,7 @@ function Report({ transcript: initialTranscript, onBack }: { transcript: string;
   }
 
   const running = status === "running";
+  const activeType = typeFor(reportType);
 
   return (
     <>
@@ -132,41 +135,52 @@ function Report({ transcript: initialTranscript, onBack }: { transcript: string;
           <Button variant="ghost" size="icon" onClick={onBack}>
             <ArrowLeft className="size-4" />
           </Button>
-          <h1 className="text-2xl font-semibold tracking-tight">report</h1>
+          <h1 className="text-2xl font-semibold tracking-tight">{t("titleReport")}</h1>
         </div>
-        <span className="flex items-center gap-1.5 text-sm text-muted-foreground">
-          <ShieldCheck className="size-4" />
-          Only the transcript text is sent to Claude.
-        </span>
+        <div className="flex items-center gap-3">
+          <span className="flex items-center gap-1.5 text-sm text-muted-foreground">
+            <ShieldCheck className="size-4" />
+            {t("transcriptSent")}
+          </span>
+          {!running && (
+            <Button variant="ghost" size="icon" onClick={onSettings}>
+              <SettingsIcon className="size-4" />
+            </Button>
+          )}
+        </div>
       </header>
 
-      {!tokenSaved || editingToken ? (
-        <div className="flex items-end gap-2">
-          <div className="flex flex-1 flex-col gap-1.5">
-            <span className="text-sm text-muted-foreground">Anthropic API token (optional)</span>
-            <Input
-              type="password"
-              value={tokenInput}
-              onChange={(event) => setTokenInput(event.target.value)}
-              placeholder="sk-ant-…"
-            />
-          </div>
-          <Button onClick={saveToken} disabled={!tokenInput}>
-            Save
-          </Button>
-        </div>
-      ) : (
+      {!tokenSaved && (
         <div className="flex items-center gap-2 text-sm text-muted-foreground">
           <KeyRound className="size-4" />
-          API token saved in your keychain.
-          <button className="underline underline-offset-4" onClick={() => setEditingToken(true)}>
-            Change
+          {t("noTokenPre")}
+          <button className="underline underline-offset-4" onClick={onSettings}>
+            {t("settingsLink")}
           </button>
+          {t("noTokenPost")}
         </div>
       )}
 
+      <div className="flex flex-col gap-2">
+        <span className="text-sm text-muted-foreground">{t("outputType")}</span>
+        <div className="flex flex-wrap gap-2">
+          {REPORT_TYPES.map((type) => (
+            <Button
+              key={type.value}
+              variant={type.value === reportType ? "default" : "outline"}
+              size="sm"
+              disabled={running}
+              onClick={() => selectType(type)}
+            >
+              {t(type.labelKey)}
+            </Button>
+          ))}
+        </div>
+        <p className="text-xs text-muted-foreground">{t(activeType.descriptionKey)}</p>
+      </div>
+
       <details className="rounded-lg border bg-muted/30 px-4 py-3">
-        <summary className="cursor-pointer text-sm font-medium">Report instructions</summary>
+        <summary className="cursor-pointer text-sm font-medium">{t("instructions")}</summary>
         <Textarea
           className="mt-3 min-h-48"
           value={prompt}
@@ -175,7 +189,7 @@ function Report({ transcript: initialTranscript, onBack }: { transcript: string;
       </details>
 
       <details className="rounded-lg border bg-muted/30 px-4 py-3">
-        <summary className="cursor-pointer text-sm font-medium">Transcript — only this is sent</summary>
+        <summary className="cursor-pointer text-sm font-medium">{t("transcriptSummary")}</summary>
         <Textarea
           className="mt-3 min-h-48 font-mono text-xs"
           value={transcript}
@@ -184,21 +198,7 @@ function Report({ transcript: initialTranscript, onBack }: { transcript: string;
       </details>
 
       <div className="flex items-end gap-4">
-        <div className="flex flex-col gap-1.5">
-          <span className="text-sm text-muted-foreground">Model</span>
-          <Select value={model} onValueChange={setModel}>
-            <SelectTrigger className="w-44">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {MODELS.map((option) => (
-                <SelectItem key={option.value} value={option.value}>
-                  {option.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
+        <Field label={t("fieldModel")} value={model} onChange={setModel} options={REPORT_MODELS} />
         <Button
           variant="outline"
           size="lg"
@@ -207,7 +207,7 @@ function Report({ transcript: initialTranscript, onBack }: { transcript: string;
           onClick={copyPrompt}
         >
           {promptCopied ? <Check className="size-4" /> : <ClipboardCopy className="size-4" />}
-          {promptCopied ? "Copied" : "Copy prompt"}
+          {promptCopied ? t("btnCopied") : t("btnCopyPrompt")}
         </Button>
         <Button
           size="lg"
@@ -215,7 +215,7 @@ function Report({ transcript: initialTranscript, onBack }: { transcript: string;
           onClick={runReport}
         >
           {running ? <Loader2 className="size-4 animate-spin" /> : <Sparkles className="size-4" />}
-          {running ? "Generating…" : "Generate report"}
+          {running ? t("btnGenerating") : t("btnGenerate")}
         </Button>
       </div>
 
@@ -230,15 +230,15 @@ function Report({ transcript: initialTranscript, onBack }: { transcript: string;
           <div className="flex items-center justify-end gap-2">
             <Button variant="outline" size="sm" onClick={copyReport} disabled={!report || running}>
               {copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
-              {copied ? "Copied" : "Copy"}
+              {copied ? t("btnCopied") : t("btnCopy")}
             </Button>
             <Button variant="outline" size="sm" onClick={exportMarkdown} disabled={!report || running}>
               <Download className="size-3.5" />
-              Export .md
+              {t("exportMd")}
             </Button>
             <Button variant="outline" size="sm" onClick={printReport} disabled={!report || running}>
               <FileText className="size-3.5" />
-              Export PDF
+              {t("exportPdf")}
             </Button>
           </div>
           <div ref={outputRef} className="prose prose-sm dark:prose-invert max-h-[28rem] max-w-none overflow-y-auto">
@@ -246,7 +246,7 @@ function Report({ transcript: initialTranscript, onBack }: { transcript: string;
             {running && (
               <p className="flex items-center gap-2 text-muted-foreground not-prose">
                 <Loader2 className="size-3.5 animate-spin" />
-                Writing…
+                {t("writing")}
               </p>
             )}
           </div>

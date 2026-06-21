@@ -63,21 +63,51 @@ error — one channel, not two.
 
 ## The report prompt
 
-The default system prompt is **derived from the example reports** in `0608/` and
-`0617/` so the app reproduces that exact Czech, structured-Markdown style out of
-the box. It is **editable in a Settings panel** — seed a good default, let the
-user tune it. Only the transcript text + the prompt go to Claude.
+The app ships several **output types**, each a tuned system prompt: *Meeting
+report* (default, derived from the example reports in `0608/`/`0617/` so it
+reproduces that Czech, structured-Markdown style), *Lecture notes* (nudges the
+model to sanity-check numbers/names/terms — lecture audio is worse, so it must flag
+likely mis-hearings rather than copy them in), *Summary*, and *Action items*. The
+user picks the type on the Report screen (a visible button group) and can tweak
+that type's prompt per run; the default type lives in Settings. Only the chosen
+prompt + the transcript text go to Claude. Prompts are data in `reportTypes.ts`.
+
+## Localization
+
+The app is bilingual (**Czech default**, English optional), with two **independent**
+settings — both in Settings, both default `cs`:
+- **App language** (`prefs.appLang`) — the UI chrome. Strings live in `i18n.ts` (a
+  typed dictionary; `cs` must match `en`'s key set). `App` builds `t =
+  translator(appLang)` and threads it to every screen.
+- **Output language** (`prefs.outputLang`) — the language Claude writes the report
+  in. Each output type carries a prompt **per language** (`prompt: { cs, en }` in
+  `reportTypes.ts`); the Czech prompts are kept verbatim (the quality bar), English
+  added. Reflected in the prompt itself (not a bolt-on "write in X" directive), so
+  headings/quotes are native to the chosen language.
+
+A **third** language already existed and stays separate: the **transcription**
+language (Whisper: auto/cs/en) on the Transcribe screen — what the *audio* is in.
+Backend/diagnostic error text (Rust/Python) is left untranslated on purpose. The
+app **name** ("transcriber" title on the first screen) is a brand, not translated.
+
+The output-language directive in each prompt is **explicit about the cross-language
+case** ("write the entire output in X even if the transcript is in another language
+— translate it"). Without that, Claude mirrored the (Czech) transcript and ignored
+a bare "write in English" in the system prompt. The system prompt is kept (correct
+API usage); only the wording was strengthened — generation sends exactly the prompt
+shown in Instructions / copied by Copy prompt (verified same `prompt` state).
 
 ## Screens
 
 1. **Transcribe** — file drop; Model / Device / Language dropdowns; live segment
    log; "audio never leaves your device" badge; transcript shown when done.
-2. **Report** — two paths off the same editable prompt: **(a) API** — token field
-   (keychain), model dropdown (Sonnet 4.6 default), streamed Markdown report with
+2. **Report** — pick an **output type** (button group: Meeting report / Lecture
+   notes / Summary / Action items), optionally tweak its prompt, then two paths:
+   **(a) API** — model dropdown (Sonnet 4.6 default), streamed Markdown report with
    live preview, copy, and **export as `.md` or `.pdf`**; **(b) no API** — a
    **Copy prompt** button that puts the prompt + transcript on the clipboard to
    paste into any chat AI. Explicit "only transcript text leaves the device" line.
-3. **Settings** — API token, default model, default device, the prompt template.
+3. **Settings** — API token, default model, default device, default output type.
 
 ## Phased build
 
@@ -113,8 +143,10 @@ Each phase ends with a review pass (`docs/REVIEW.md`).
   standalone script (run by hand, no `--json`) keeps writing all three. If someone
   wants the transcript on disk, add an explicit "Save transcript" later — don't
   write it silently.
-- **Phase 4 — Polish.** Layout, empty/error/loading states, the privacy badges,
-  the Settings panel. Make it pretty.
+- **Phase 4 — Polish.** ✅ Settings screen (`prefs.ts` localStorage), gear nav,
+  follow-OS theme, consistent headers. Plus four UX wins beyond the locked design:
+  transcription **progress bar**, **resolved-device** label, **Cancel**
+  transcription, and **hide the gear while running** (can't lose in-flight work).
 - **Phase 5 — Package.** Build installers. If Python+CUDA bundling is too painful
   for other users, switch the sidecar to whisper.cpp (UI untouched).
 
@@ -135,59 +167,124 @@ Each phase ends with a review pass (`docs/REVIEW.md`).
 
 ## Status
 
-**Phase 4 — IN PROGRESS (design locked, nothing implemented yet).** Stopped right
-after analysis, before writing any code. Working tree is clean (`git status` clean
-at `3b96daf`). Resume from the plan below.
+**Phase 4 + report-types/CTA + localization rounds complete (code + review).** ✅
+Not yet visually run — needs one live `npm run tauri dev` pass (see caveat at the end).
 
-_Phase 4 design decisions (locked this session — don't re-litigate):_
-- **New `Settings` screen** (third screen). Absorbs the Report screen's inline
-  **token** field + inline **prompt** field. Holds: API token, default report
-  model, default device, prompt template.
-- **Persistence = `localStorage`** (no new dep, no Rust). Token stays in keychain.
-  New module `app/src/prefs.ts`:
-  - `REPORT_MODELS` (Claude list, moved out of `Report.tsx`) and `DEVICES`
-    (Whisper device list, moved out of `Transcribe.tsx`) — now shared by 3 screens,
-    so extraction is justified (third use). Whisper `MODELS`/`LANGUAGES` **stay**
-    local to `Transcribe.tsx` (not in Settings).
-  - `type Prefs = { model; device; prompt }`, `loadPrefs()`, `savePrefs()`.
-    Defaults: `REPORT_MODELS[0].value`, `DEVICES[0].value`, `DEFAULT_REPORT_PROMPT`.
-  - `loadPrefs` stays **offensive** (no try/catch on `JSON.parse` — our own data).
-  - **Naming gotcha:** type/module is `prefs` (NOT `settings.ts`) on purpose — a
-    `Settings.tsx` + `settings.ts` pair differs only by case and collides on macOS
-    (Phase 5 builds `.dmg`). Screen = `Settings.tsx` (component `Settings`); config
-    type = `Prefs`.
-- **App owns prefs state** (`useState(loadPrefs)`), threads down, `updatePrefs(patch)`
-  merges + `savePrefs` + setState (auto-save, no Save button for model/device/prompt;
-  token keeps its own Save → keychain). Settings inputs are controlled off `prefs`.
-- **Navigation:** add `showSettings` boolean in `App.tsx`. `if (showSettings)`
-  render `<Settings>`; else current Transcribe/Report logic. Settings reachable via
-  a **gear icon** (lucide `Settings`, import aliased `SettingsIcon`) in the header
-  of both Transcribe and Report. Known tradeoff accepted: visiting Settings unmounts
-  Report, so an in-progress generated report is lost on detour — fine for v1, lift
-  state later only if it bites (no future code now).
-- **Report.tsx:** drop token UI + inline prompt `<details>` + `DEFAULT_REPORT_PROMPT`
-  import. New props `defaultModel`, `prompt`, `onSettings`. `model = useState(defaultModel)`
-  (per-run picker kept, seeded from default). `prompt` from prop. Keep the editable
-  **transcript** `<details>` (it's correction, not a setting). Still `has_token`-gate
-  Generate; when no token, show a hint line linking to Settings; Copy prompt always works.
-- **Transcribe.tsx:** import `DEVICES` from prefs (drop local copy). New props
-  `defaultDevice`, `onSettings`. `device = useState(defaultDevice)`. Add gear to header.
-- **Theme = follow OS** (`docs/PLAN.md` open question P4 → "follow OS"). In `main.tsx`:
-  `matchMedia("(prefers-color-scheme: dark)")`, toggle `.dark` on
-  `document.documentElement`, listen for `change`. ~6 lines, no React. The `.dark`
-  CSS vars already exist in `index.css`; nothing toggles them today.
-- **Polish:** consistent header (left: back+title / right: privacy badge + gear).
-  Existing empty/loading/error states are already decent — light touch only.
+Localization round (on top of the others, same uncommitted tree):
+- **`app/src/i18n.ts`** (new) — typed string dictionary (`Lang = "cs"|"en"`, `en`
+  canonical, `cs: typeof en` enforces parity), `translator(lang) → t`. ~50 keys.
+  Default language **Czech** everywhere (`prefs.appLang`/`outputLang` default `cs`).
+- **Two independent language prefs**: `appLang` (UI) and `outputLang` (report),
+  both selectable in Settings (Czech default). The pre-existing Whisper
+  transcription language is kept separate.
+- **Per-output-language prompts** — `reportTypes.ts` `prompt` is now `{ cs, en }`;
+  Czech kept verbatim (quality bar), English added. Type labels/descriptions moved
+  to i18n keys (`labelKey`/`descriptionKey`).
+- **`t` threaded** to all screens; every hardcoded string replaced. `App` derives
+  `t` from `appLang`; changing it in Settings re-renders live.
+- Reviewed by all three agents (Opus high). Applied all three unanimous/clear
+  findings: **extracted the duplicated `Field`** dropdown to `app/src/Field.tsx`
+  (was 1 helper in Transcribe + 5 copies in Settings + 1 in Report — now one shared
+  component with a `triggerClassName`; removed the direct `Select` imports from all
+  three screens); **renamed `APP_LANGUAGES` → `LANGUAGES` and moved it to `prefs.ts`**
+  (it drives both pickers; that's where option-lists live); **renamed the pref key
+  `uiLang` → `appLang`** to match the "App language" label. Dismissed with reason:
+  the English half is the explicit request (not future code); the audio-language
+  endonyms staying duplicated (genuinely a different list, has `auto`); the
+  half-applied i18n key-prefix scheme (cosmetic, names self-explanatory).
+- **Follow-up fixes (live-test feedback):** (1) English output came out Czech — the
+  system prompt *was* English (same `prompt` state as Copy prompt), Claude just
+  mirrored the Czech transcript; strengthened each prompt's language line to demand
+  translation regardless of transcript language. (2) Stopped translating the app
+  name: `titleTranscribe` is "transcriber" in both languages.
 
-_What's left = implement the above, then run all 3 reviewers (Opus high), then a
-live `npm run tauri dev` pass (check: OS dark-mode toggles theme; Settings persists
-across app restart; Report works with token moved to Settings; gear nav)._
+This round (on top of Phase 4, same uncommitted tree):
+- **Output types** (`app/src/reportTypes.ts`, new) — four tuned prompts: *Meeting
+  report* (the old single prompt, now the default), *Lecture notes* (explicitly
+  nudges the model to flag mis-heard numbers/names/terms and add a "K ověření"
+  section — lecture audio is worse), *Summary*, *Action items*. Replaces the single
+  `defaultPrompt.ts` (deleted). `prefs.prompt` → `prefs.reportType` (default type).
+- **Report screen** now leads with a visible **Output type** button group +
+  one-line description; selecting a type loads its prompt into the (still editable)
+  Instructions `<details>` and **clears any report from the previous type** (a
+  reviewer-caught stale-output bug). `reportType` is normalized through `typeFor`
+  so a stale persisted value always highlights a real button.
+- **Settings** swaps the free-text prompt editor for a **Default output type**
+  select (beside default model/device). Per-type prompt editing is per-run on the
+  Report screen, not persisted — deliberate (no per-type override map; less code).
+- **Transcribe CTA fix** — the "Write report" button was below the fold under a long
+  transcript log, so users missed it and re-ran transcription. **Proper fix:** the
+  primary action now lives in the always-visible control row — when done it shows
+  **Re-transcribe** (outline) + **Write report** (primary); the buried bottom block
+  is gone.
+- Reviewed by all three agents (Opus high). Applied: clear stale report on type
+  switch, normalize `reportType` on init, trim the `reportTypes.ts` header comment.
+  Dismissed with reason: the four types are a direct user request (not future
+  code); the button group is a deliberate divergence from the Select idiom so all
+  types are *visible* (the whole point); skipped a `ReportTypeValue` union (the
+  value comes from `JSON.parse`, so the runtime `typeFor` fallback is the honest
+  guard either way).
 
-_Caveat for next session:_ my ad-hoc lucide-icon existence check (deriving icon
-filenames in `node_modules`) reported all icons MISSING — **ignore it, the check
-was wrong** (filename derivation off). The icons are real: the working code already
-imports `ArrowRight`/`CheckCircle2`/`ShieldCheck`/`ArrowLeft`/`Check`/`KeyRound`
-from `lucide-react`. Just use them; `Settings` icon is standard too.
+What landed (the locked design):
+- **New `Settings` screen** (`app/src/Settings.tsx`). Absorbs the Report screen's
+  token field + prompt editor. Holds: API token (keychain, own Save), default
+  report model, default device, prompt template (all auto-saved).
+- **`app/src/prefs.ts`** — `localStorage` persistence (no new dep, no Rust). Holds
+  the shared `REPORT_MODELS` + `DEVICES` lists (moved out of Report/Transcribe —
+  third use justified the extraction; Whisper `MODELS`/`LANGUAGES` stayed local),
+  `type Prefs = { model; device; prompt }`, `loadPrefs`/`savePrefs`. Token stays in
+  the keychain. `loadPrefs` merges over defaults (reviewer fix — an older blob
+  missing a key never yields an `undefined` pref). Named `prefs.ts` (not
+  `settings.ts`) to avoid the macOS case-collision with `Settings.tsx`.
+- **`App.tsx`** owns `prefs` (`useState(loadPrefs)`) + `showSettings`; `updatePrefs`
+  merges → `savePrefs` → setState; threads `defaultDevice`/`defaultModel`/`prompt`
+  down. **Gear icon** (lucide `Settings` aliased `SettingsIcon`) in both screen
+  headers opens Settings.
+- **Report.tsx** shrank: token UI + inline prompt `<details>` gone; new props
+  `defaultModel`/`prompt`/`onSettings`; `model = useState(defaultModel)`; editable
+  transcript `<details>` kept. No-token state shows a hint linking to Settings;
+  Copy prompt always works, Generate still `has_token`-gated.
+- **Theme follows OS** — `main.tsx` toggles `.dark` from `matchMedia`, listens for
+  `change`. ~6 lines, no React.
+
+Four UX wins added beyond the locked design (this session's "think harder" pass):
+- **Transcription progress bar** — `start.duration` + each `segment.end` (the `end`
+  was being dropped) drive a thin bar + `%`, shown while running. No dep, no clutter.
+- **Resolved-device label** — the info line now shows the device the sidecar
+  actually used (Auto → GPU/CPU), so a silent CPU fallback is visible. `start.device`
+  was being discarded.
+- **Cancel transcription** — Rust keeps the `CommandChild` in
+  `tauri::State<Mutex<Option<…>>>`; new `cancel_transcribe` kills it; the
+  `Terminated` branch treats an already-taken child as a cancel (Ok), not a failure.
+  A Cancel button replaces Transcribe while running. (Single-run assumption noted in
+  the struct doc — the UI enforces it.)
+- **Gear hidden while running** on both screens, so a Settings detour can't unmount
+  and lose an in-flight transcription or streamed report.
+
+Verified: `npm run build` (tsc + vite) and `cargo check`/`clippy` green (the old
+`collapsible_match` warning is gone — that branch was rewritten). Reviewed by all
+three agents (`minimalist`/`consistency`/`grug`, Opus high). Unanimous accepted
+fix: `loadPrefs` merges defaults (applied). Also applied: a one-line `why` on the
+round-tripped resolved device, and the single-run note on the cancel state.
+Deliberately skipped (with reason): blur-commit for the prompt textarea (the locked
+design is controlled auto-save; blur adds state for a rarely-edited field — grug
+would ship the per-keystroke write).
+
+_Live-run checklist (next session, `cd app && npm run tauri dev`):_ OS dark-mode
+toggles theme live; prefs persist across an app restart; gear nav works and is gone
+while running; **progress bar** advances against a real recording; **resolved
+device** shows GPU/CPU correctly; **Cancel** actually stops a run and returns to a
+clean idle (no error box); Report works with the token now living in Settings; the
+no-token hint links to Settings and Copy prompt still works with no key. Plus this
+round: the Transcribe **Write report** button is visible without scrolling (and
+**Re-transcribe** re-runs); the **Output type** picker switches the prompt and
+wipes a stale report from the previous type; the **Lecture notes** type actually
+flags uncertain numbers/terms on a real recording; Settings **default output type**
+is what the Report screen opens on after a restart. Plus localization: **App
+language** switches the whole UI live (default Czech) and persists across restart;
+**Output language** changes the prompt and the generated report's language
+(default Czech), independently of the UI and of the transcription language; the
+English output types produce native English headings (no Czech bleed-through).
 
 ---
 
@@ -309,11 +406,11 @@ the local SSH keys aren't authorized for the `hissetta` namespace, but the `glab
 token is. Already configured in this clone (`credential.helper = !glab auth
 git-credential`). Don't switch the remote back to SSH.
 
-**Next action — implement Phase 4** per the locked design at the top of this
-Status section (new `Settings` screen + `prefs.ts` localStorage persistence; move
-token + prompt out of Report; gear-icon nav; follow-OS theme in `main.tsx`). Then
-run the 3 reviewers and a live `npm run tauri dev` pass. Nothing is written yet —
-start from a clean tree at `3b96daf`.
+**Next action — live-run Phase 4** (`cd app && npm run tauri dev`) against the
+checklist above, then commit. After that, **Phase 5 — Package**: build installers;
+if bundling Python+CUDA for other users is too painful, swap the sidecar to a
+whisper.cpp binary (UI untouched) and fix the dev-only `CARGO_MANIFEST_DIR` sidecar
+path resolution (see the Phase 2 follow-up below). Phase 4 is written but uncommitted.
 
 _Open Phase 2 follow-up:_ the sidecar resolves the `.venv` python + script via the
 compile-time `CARGO_MANIFEST_DIR`, so it only runs from this dev checkout. Packaging

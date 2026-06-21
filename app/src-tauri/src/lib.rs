@@ -1,8 +1,14 @@
 use std::path::PathBuf;
+use std::sync::Mutex;
 
 use tauri::{AppHandle, Emitter};
-use tauri_plugin_shell::process::CommandEvent;
+use tauri_plugin_shell::process::{CommandChild, CommandEvent};
 use tauri_plugin_shell::ShellExt;
+
+// Holds the running transcription's child so `cancel_transcribe` can kill it;
+// `None` when idle. Assumes one run at a time (the UI disables start while running).
+#[derive(Default)]
+struct TranscribeState(Mutex<Option<CommandChild>>);
 
 // The Anthropic token lives in the OS keychain, keyed by the app id. It is read
 // in Rust when generating a report and never crosses into the webview.
@@ -18,6 +24,7 @@ fn repo_root() -> PathBuf {
 #[tauri::command]
 async fn transcribe(
     app: AppHandle,
+    state: tauri::State<'_, TranscribeState>,
     input: String,
     model: String,
     device: String,
@@ -41,12 +48,14 @@ async fn transcribe(
         args.push(language);
     }
 
-    let (mut events, _child) = app
+    let (mut events, child) = app
         .shell()
         .command(python)
         .args(args)
         .spawn()
         .map_err(|err| format!("Failed to start transcription: {err}"))?;
+
+    *state.0.lock().unwrap() = Some(child);
 
     let mut stderr = String::new();
     while let Some(event) = events.recv().await {
@@ -61,6 +70,11 @@ async fn transcribe(
             CommandEvent::Stderr(line) => stderr.push_str(&String::from_utf8_lossy(&line)),
             CommandEvent::Error(err) => stderr.push_str(&err),
             CommandEvent::Terminated(payload) => {
+                // If the child is already gone, `cancel_transcribe` took it — the
+                // exit is a user cancellation, not a failure.
+                if state.0.lock().unwrap().take().is_none() {
+                    return Ok(());
+                }
                 if payload.code != Some(0) {
                     let detail = stderr.trim();
                     return Err(if detail.is_empty() {
@@ -72,6 +86,14 @@ async fn transcribe(
             }
             _ => {}
         }
+    }
+    Ok(())
+}
+
+#[tauri::command]
+fn cancel_transcribe(state: tauri::State<'_, TranscribeState>) -> Result<(), String> {
+    if let Some(child) = state.0.lock().unwrap().take() {
+        child.kill().map_err(|err| err.to_string())?;
     }
     Ok(())
 }
@@ -170,8 +192,10 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
+        .manage(TranscribeState::default())
         .invoke_handler(tauri::generate_handler![
             transcribe,
+            cancel_transcribe,
             save_token,
             has_token,
             generate_report,
