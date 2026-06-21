@@ -257,8 +257,9 @@ shippable CPU app on every OS. **The React UI does not change.**
 deferred as "untestable without live NVIDIA" is proven.) **Decision: first-run
 download** of the CUDA libs (not bundled — keeps the installer ~200 MB vs ~800 MB,
 mirrors the model fetch). Engine code done + clippy-clean (default and `--features
-cuda`); CI `linux-cuda` job written. Needs a live tag to validate the CI (untestable
-locally), and a `tauri build --features cuda` smoke test (heavy/crash-risky locally).
+cuda`); CI `linux-cuda` job written. **Committed + pushed (87fc3ee, GitHub `main`).**
+Needs a live tag to validate the CI (untestable locally) and a `tauri build
+--features cuda` smoke test (heavy/crash-risky locally).
 
 What was proven (local, user-space, no sudo):
 - **Built a CUDA `whisper-cli`** from whisper.cpp v1.9.1, `-DGGML_CUDA=ON
@@ -329,7 +330,7 @@ instead of LD_LIBRARY_PATH).
 
 **Phase 5 Stage B — ffmpeg bundled + CI (CPU + Metal); CUDA deferred. Code +
 reviews + local verify done (2026-06-21); needs a live tag to validate CI.** 🟡
-Not yet committed/pushed (uncommitted tree on `main`).
+Committed + pushed (87fc3ee, GitHub `main`) together with B2b above.
 
 What landed (Stage B, this session):
 - **ffmpeg is now a bundled sidecar** (all three Stage-A reviewers' top flag).
@@ -711,14 +712,18 @@ to (a) remove the private consultation samples `0608/` + `0617/` — **moved to
 third-party/work references. Force-pushed to GitHub only. Never re-commit the
 samples (now gitignored: `*.txt`/`*.srt`/`*.vtt`/`transcribe.log`).
 
-**Next action — finish Phase 5, Stage B:** (1) **commit + push** the Stage B tree
-(ffmpeg sidecar swap, `release.yml`, README) to GitHub `main`; (2) **push a `v*`
-tag** to validate the CI matrix live (it can't be proven any other way) and fix
-whatever the first run surfaces — see the "_Live validation needed_" notes in the
-Status section; (3) then **B2b — CUDA**: add NVIDIA installers (Linux/Windows),
-whose hard part is bundling `cudart`/`cublas` + the loader path, not the build
-(design captured in the Stage B status above). The whisper.cpp + ffmpeg sidecars are
-gitignored — a fresh clone (and CI) must build/fetch them (steps in `.gitignore`).
+**Next action — validate Stage B live.** All of Stage B (B1 ffmpeg + B2 CPU/Metal CI
++ B2b Linux CUDA) is committed + pushed (87fc3ee, GitHub `main`). Now **push a
+`v0.1.0` tag** (must equal the crate version — the CUDA fetch URL + a CI guard
+depend on it) to run the matrix, then **publish the draft release** so the
+installers *and* the CUDA libs become downloadable. Fix whatever the first run
+surfaces — see the "_Live validation needed_" notes + the B2b verify-live list above
+(Windows whisper path/VC++ runtime, macOS ffmpeg URL, Linux libgomp, Jimver action
+version, `--config` path, unsigned-launch UX). Then a real transcription per
+installer, incl. a `transcriber-cuda` install on a GPU box. **Windows-CUDA** is the
+remaining backend (CI-only; DLLs-next-to-exe instead of LD_LIBRARY_PATH). The
+whisper.cpp + ffmpeg sidecars are gitignored — a fresh clone (and CI) must
+build/fetch them (steps in `.gitignore`).
 
 _Resolved (Stage A):_ the old Phase 2 follow-up — the sidecar resolving the `.venv`
 python + script via compile-time `CARGO_MANIFEST_DIR` — is **gone**. The whisper-cli
