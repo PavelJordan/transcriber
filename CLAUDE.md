@@ -83,10 +83,10 @@ converts input → 16 kHz wav via system **ffmpeg**, spawns the `whisper-cli`
 `externalBin` sidecar, and parses its output into the same `start`/`segment`/`done`
 events (the UI only gained a `download` progress variant). The now-meaningless device
 picker was removed. `transcribe.py` stays as the owner's local dev/GPU path. `npm run
-build` + `cargo clippy` green; two fresh-eyes review rounds (Opus high). **Not yet
-live-run through the GUI** — see the live-run checklist + the full detail in the
-**Status** section of `docs/PLAN.md` (the source of truth across sessions). Next:
-Phase 5 Stage B (GPU variants + CI + bundle ffmpeg).
+build` + `cargo clippy` green; two fresh-eyes review rounds (Opus high); **live-run
+confirmed (2026-06-21)** through the GUI — see the full detail in the **Status**
+section of `docs/PLAN.md` (the source of truth across sessions). Next: Phase 5
+Stage B (GPU variants + CI + bundle ffmpeg).
 
 > Git: push over **HTTPS via the `glab` credential helper**, not SSH (the local
 > SSH keys aren't authorized for the `hissetta` namespace). Already configured.

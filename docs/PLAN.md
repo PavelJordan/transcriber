@@ -251,10 +251,18 @@ shippable CPU app on every OS. **The React UI does not change.**
 
 ## Status
 
-**Phase 5 Stage A complete (code + two review rounds).** ✅ The shipped transcription
-engine is now **whisper.cpp** instead of the faster-whisper Python sidecar — behind
-the **unchanged** transcription UI. **Not yet live-run through the GUI** (see the
-checklist below); the app compiles + launches and the engine was verified by hand.
+**Phase 5 Stage A complete + live-run confirmed (2026-06-21).** ✅ The shipped
+transcription engine is now **whisper.cpp** instead of the faster-whisper Python
+sidecar — behind the **unchanged** transcription UI. The owner ran it through the
+GUI: transcription streams live, the **first-use model download** + progress works,
+**Cancel** stops a run/download to a clean idle, and **auto** language detection
+works. Two checklist items were *not* exercised through the GUI but are non-blocking
+(owner's call): the **forced `cs`/`en`** picker (works at the engine by hand — `-l
+cs` produced segments, no detection line) and the **clean-recording-folder** check
+(holds by construction — the command writes only to the OS temp dir (the wav) and
+`app_data_dir` (the model), and whisper-cli is run with no output-file flags, so it
+never writes next to the source). Worth a glance if ever in doubt, but not a Stage A
+blocker.
 
 What landed (Stage A):
 - **whisper.cpp CPU sidecar.** Built a static CPU binary (`cmake -DBUILD_SHARED_LIBS=OFF
@@ -301,16 +309,11 @@ What landed (Stage A):
   cancel-then-instant-restart race is pre-existing and out of Stage A scope (the
   single-run assumption is documented on `TranscribeState`).
 
-_Live-run checklist (next session, `cd app && npm run tauri dev`):_ drop a real
-recording → it transcribes via whisper.cpp (segments stream live, progress bar
-advances); the **first** use of a model shows "Downloading model… N%" then
-transcribes; **Cancel** stops a run (and a download) and returns to clean idle;
-**auto** language shows the detected language, forced `cs`/`en` is honored; the
-recording's folder stays clean (no files written); **Write report** still flows to
-the Report screen. The 466 MB `small` first-download takes a bit — pre-place
-`~/.local/share/com.hissetta.transcriber/models/ggml-small.bin` (or test with the
-`base` model already there) to skip the wait. Note: `large-v3` on CPU is
-slow-but-works; **medium/small** are the practical defaults.
+_Live-run (done 2026-06-21):_ green per the header above. Operational notes for next
+time: the 466 MB `small` first-download takes a bit — pre-place
+`~/.local/share/com.hissetta.transcriber/models/ggml-small.bin` (or use the `base`
+model already there) to skip the wait; `large-v3` on CPU is slow-but-works, so
+**medium/small** are the practical defaults.
 
 ---
 
@@ -568,12 +571,11 @@ to (a) remove the private consultation samples `0608/` + `0617/` — **moved to
 third-party/work references. Force-pushed to GitHub only. Never re-commit the
 samples (now gitignored: `*.txt`/`*.srt`/`*.vtt`/`transcribe.log`).
 
-**Next action — Phase 5, Stage B** (new session): after the owner's Stage A live-run
-passes (checklist in the Stage A status above), do GPU variants + CI + **bundle
-ffmpeg** — see the **"Phase 5 — Packaging"** section above. Stage A is uncommitted
-on this tree (engine swap behind the unchanged UI); commit + `git push github main`
-once the live-run confirms it. The whisper.cpp binary is gitignored — a fresh clone
-(and CI) must build it (steps in `.gitignore`).
+**Next action — Phase 5, Stage B** (new session): GPU variants + CI + **bundle
+ffmpeg** — see the **"Phase 5 — Packaging"** section above. Stage A is committed +
+pushed (`f613917`, GitHub `main`) and **live-run confirmed (2026-06-21)**. The
+whisper.cpp binary is gitignored — a fresh clone (and CI) must build it (steps in
+`.gitignore`).
 
 _Resolved (Stage A):_ the old Phase 2 follow-up — the sidecar resolving the `.venv`
 python + script via compile-time `CARGO_MANIFEST_DIR` — is **gone**. The whisper-cli
