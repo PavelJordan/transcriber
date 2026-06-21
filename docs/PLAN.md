@@ -239,6 +239,43 @@ shippable CPU app on every OS. **The React UI does not change.**
 - **OSS polish**: add a `README` (what it is, install, the privacy story, build from
   source). `LICENSE` is already MIT.
 
+### Stage B follow-ups (after the v0.1.0 run validates) and roadmap
+
+- **B2c — Windows CUDA** (planned; the last GPU backend). Same first-run-download
+  shape as Linux CUDA, but Windows-specific and **unverifiable locally** (no
+  Windows+NVIDIA box) — validate by tag:
+  - **Loader:** Windows has no `LD_LIBRARY_PATH`; prepend the lib dir to the spawned
+    `whisper-cli.exe`'s **`PATH`** instead (the loader searches PATH for dependent
+    DLLs). So `run_whisper` sets `LD_LIBRARY_PATH` on Linux / `PATH` on Windows
+    (a `cfg`/per-OS env-var name).
+  - **Lib names are per-OS:** `cudart64_12.dll`, `cublas64_12.dll`,
+    `cublasLt64_12.dll` (so `CUDA_LIBS` becomes OS-specific); uploaded to the release
+    and fetched on first run, same as Linux.
+  - **Build:** a `windows-cuda` matrix entry — Jimver CUDA toolkit on
+    `windows-latest`, MSVC + nvcc, `-DGGML_CUDA=ON`, distinct productName
+    (`transcriber-cuda`) so the installer doesn't collide with `windows-cpu`.
+  - **Gotchas to expect:** DLL search not honoring PATH under safe-DLL-search
+    hardening; the lib-extract/`gh release upload` step likely needs a pwsh variant.
+
+- **Build-check CI (worth doing):** today only **tags** build, so nothing catches a
+  broken build until a release. Add a light workflow on push/PR (one OS, CPU,
+  `cargo clippy` + `npm run build` + a dry `tauri build`) so breakage surfaces early
+  — the cheapest real safety net now that the engine has feature-gated paths.
+
+- **Decide-when-needed (don't build speculatively):**
+  - **Code signing / notarization** — only if distribution widens past "a few people
+    who can click Run anyway" (Apple $99/yr + notarize, Windows cert; both add CI
+    secrets). Shipping unsigned is the current, documented choice.
+  - **Intel macOS (x86_64)** — we only build `macos-14` arm64 (Metal); add an
+    `x86_64-apple-darwin` CPU entry only if someone actually has an Intel Mac.
+  - **Auto-update** (Tauri updater) — probably never for this audience; they
+    re-download. Skip unless asked.
+  - **macOS ffmpeg source** is a hand-pinned third-party build (osxexperts): a
+    maintenance watch, not a task — bump/replace if it disappears.
+
+After B2c + the build-check, Phase 5 (and the app's stated goal) is essentially
+done; everything else above is opt-in.
+
 ### Stage A first task list (concrete starting point)
 1. Get a whisper.cpp Linux binary + a small ggml model onto the machine (build from
    source or grab a release).
@@ -273,8 +310,9 @@ shippable CPU app on every OS. **The React UI does not change.**
 > 3. **Publish the draft release** the matrix creates — until published, the
 >    installers *and* the CUDA libs aren't downloadable (CUDA first-run would 404).
 > 4. **Live-test** each installer; for CUDA install `transcriber-cuda` on a GPU box.
-> 5. **Windows-CUDA** is the one remaining backend (CI-only; DLLs-next-to-exe
->    instead of `LD_LIBRARY_PATH`).
+> 5. **Windows-CUDA (B2c)** is the one remaining backend — see the B2c spec in the
+>    "Phase 5 — Packaging" section (`PATH` not `LD_LIBRARY_PATH`, per-OS DLL names).
+>    A **build-check CI** (build on push/PR, not just tags) is also queued there.
 >
 > **Local-only (NOT in the repo, this machine):**
 > - CUDA toolchain at `~/cuda-build/` — idempotent, reboot-proof `build.sh` builds a
