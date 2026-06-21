@@ -26,6 +26,7 @@ Grab the installer for your machine from the [latest release][releases]:
 | Machine | File | Acceleration |
 |---|---|---|
 | Linux (x86-64) | `.AppImage` / `.deb` | CPU |
+| Linux (x86-64, NVIDIA) | `.deb` / `.rpm` | **CUDA (GPU)** |
 | Windows (x86-64) | `.msi` / `-setup.exe` | CPU |
 | macOS (Apple Silicon) | `.dmg` | **Metal (GPU)** |
 
@@ -37,8 +38,8 @@ warn on first launch:
 - **Windows:** SmartScreen → **More info** → **Run anyway**.
 
 On first transcription the app downloads the chosen Whisper model (a few hundred MB)
-into its app-data folder; later runs reuse it. NVIDIA (CUDA) builds are planned —
-see `docs/PLAN.md`.
+into its app-data folder; later runs reuse it. The NVIDIA build additionally fetches
+its CUDA runtime libraries on first use, so its installer stays small.
 
 ## How it works
 
@@ -86,7 +87,7 @@ its source is available from those projects. This app's own code is MIT
 ## Docs
 
 - **[CLAUDE.md](CLAUDE.md)** — the map (also the source for `AGENTS.md`).
-- **[docs/PLAN.md](docs/PLAN.md)** — architecture, decisions, phased build, status.
+- **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** — how it's built, decisions, distribution.
 - **[docs/STYLE.md](docs/STYLE.md)** — code style (grug-brain: keep it simple).
 - **[docs/REVIEW.md](docs/REVIEW.md)** — the fresh-context review loop.
 

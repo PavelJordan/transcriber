@@ -39,8 +39,7 @@ pi -p --model opus-4-8 --thinking high -t read,bash \
 
 - After finishing a meaningful chunk — a screen, the sidecar wiring, the API call.
   Not after every line; not only at the very end.
-- At minimum, **once per phase** in `docs/PLAN.md` before marking it done.
-- Always before packaging.
+- Always before cutting a release.
 
 ## How to run
 
