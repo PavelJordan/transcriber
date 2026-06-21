@@ -58,7 +58,11 @@ jobs:
             cmake_extra: "-DGGML_CUDA=ON -DCMAKE_CUDA_ARCHITECTURES=all-major"
             ffmpeg_url: https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-static.tar.xz
             # `cuda` feature = fetch the CUDA libs on first run; distinct
-            # productName so the installer doesn't collide with linux-cpu's.
+            # productName so the installer doesn't collide with linux-cpu's. The
+            # config also limits bundling to deb+rpm: AppImage runs linuxdeploy,
+            # which ldd-scans the rpath-stripped whisper-cli sidecar, can't resolve
+            # the runtime-fetched CUDA libs, and aborts (and bundling them would be
+            # ~600 MB, defeating the first-run-download design).
             args: "--features cuda --config src-tauri/tauri.cuda.conf.json"
 
     runs-on: ${{ matrix.os }}

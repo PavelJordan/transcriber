@@ -389,8 +389,16 @@ What got wired (this session, after the first-run-download decision):
   -DCMAKE_CUDA_ARCHITECTURES=all-major`, `patchelf --remove-rpath` (so it uses only
   the app-fetched libs), builds the app with `--features cuda` + a `tauri.cuda.conf
   .json` overlay (productName `transcriber-cuda`, so the installer doesn't collide
-  with linux-cpu's), then uploads the 3 CUDA libs to the release for the first-run
-  fetch. (Draft-release assets are downloadable only after the draft is published —
+  with linux-cpu's; overlay also pins `bundle.targets` to **deb+rpm only** — see
+  below), then uploads the 3 CUDA libs to the release for the first-run fetch.
+  - **No AppImage for CUDA (fixed 2026-06-21, first live tag).** The `linux-cuda`
+    job built deb+rpm fine but died on AppImage: `failed to run linuxdeploy`. deb/rpm
+    pack the AppDir as-is, but AppImage's linuxdeploy ldd-scans every executable —
+    incl. the `whisper-cli` sidecar — and copies its shared libs. That sidecar is
+    CUDA-linked **and rpath-stripped**, so its CUDA libs resolve to *not found* and
+    linuxdeploy aborts (and bundling them anyway would be ~600 MB, defeating the
+    first-run-download design). AppImage is thus incompatible with runtime-fetched
+    CUDA; the overlay drops it. CPU/Metal/Windows keep all their targets. (Draft-release assets are downloadable only after the draft is published —
   publish to make installers + libs live.)
 - **Verified locally:** `cargo clippy` clean both default and `--features cuda`;
   release.yml + overlay parse. **Not** verified: the CI job (needs a live tag) and a
