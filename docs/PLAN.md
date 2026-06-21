@@ -252,6 +252,44 @@ shippable CPU app on every OS. **The React UI does not change.**
 
 ## Status
 
+> **SESSION HANDOFF (2026-06-21, end of session) — read this first to continue.**
+>
+> **State:** All of Phase 5 Stage B (B1 ffmpeg sidecar + B2 CPU/Metal CI + B2b Linux
+> CUDA) is committed + pushed to GitHub `main` (`87fc3ee` code, `c351731` docs), and
+> the **`v0.1.0` tag is pushed** → the release CI (`.github/workflows/release.yml`)
+> is running. Its result was **not yet seen** (GitHub's API was 5xx'ing and `gh`
+> isn't installed locally). Nothing else in flight; working tree clean.
+>
+> **Continue here (fresh session):**
+> 1. **Check the run:** https://github.com/PavelJordan/transcriber/actions — 4 jobs
+>    (`linux-cpu`, `windows-cpu`, `macos-metal`, `linux-cuda`; `fail-fast: false`,
+>    `linux-cuda` slowest). CLI: install `gh` (absent) or curl the public API
+>    `repos/PavelJordan/transcriber/actions/runs`.
+> 2. **Fix whatever's red** — this CI is unrun, expect a first-pass fix. Prime
+>    suspects (detail in the entries below): Jimver CUDA-action version + `cuda:
+>    12.6.2`; Windows `whisper-cli` path `build/bin/Release/...exe` + VC++ runtime;
+>    macOS arm64 ffmpeg URL (osxexperts); the CUDA `--config` path; Linux `libgomp`;
+>    unsigned-launch UX.
+> 3. **Publish the draft release** the matrix creates — until published, the
+>    installers *and* the CUDA libs aren't downloadable (CUDA first-run would 404).
+> 4. **Live-test** each installer; for CUDA install `transcriber-cuda` on a GPU box.
+> 5. **Windows-CUDA** is the one remaining backend (CI-only; DLLs-next-to-exe
+>    instead of `LD_LIBRARY_PATH`).
+>
+> **Local-only (NOT in the repo, this machine):**
+> - CUDA toolchain at `~/cuda-build/` — idempotent, reboot-proof `build.sh` builds a
+>   CUDA `whisper-cli`; env `~/cuda-build/cudaenv` (micromamba: nvcc 12.6 + gcc 13
+>   from conda-forge — the nvidia-channel nvcc is 12.4 and rejects gcc-14; system
+>   gcc-15 is too new). The built binary was GPU-validated (jfk.wav on the RTX 4050).
+> - Host/serve these 3 for the first-run fetch (from the env's
+>   `targets/x86_64-linux/lib`): `libcudart.so.12`, `libcublas.so.12`,
+>   `libcublasLt.so.12` (the last is 491 MB). CI uploads them to the release.
+> - pip CUDA wheels + `patchelf` were installed into the project `.venv` (gitignored).
+> - **Build-OOM lesson:** `cmake --build -j` (all 20 cores) freezes the box on
+>   ggml-cuda (kernels 2–4 GB each) — use **`-j4`**; a freeze leaves zero-byte `.o`
+>   that incremental builds skip → clean rebuild. **zram** (zstd, ram/2) was
+>   recommended as the safety net (needs sudo; may not be set up yet).
+
 **Phase 5 Stage B / B2b — Linux CUDA: validated on real GPU + wired into app/CI
 (2026-06-21).** ✅ (Machine gained an NVIDIA RTX 4050 + driver 580, so the piece I'd
 deferred as "untestable without live NVIDIA" is proven.) **Decision: first-run
@@ -713,9 +751,9 @@ third-party/work references. Force-pushed to GitHub only. Never re-commit the
 samples (now gitignored: `*.txt`/`*.srt`/`*.vtt`/`transcribe.log`).
 
 **Next action — validate Stage B live.** All of Stage B (B1 ffmpeg + B2 CPU/Metal CI
-+ B2b Linux CUDA) is committed + pushed (87fc3ee, GitHub `main`). Now **push a
-`v0.1.0` tag** (must equal the crate version — the CUDA fetch URL + a CI guard
-depend on it) to run the matrix, then **publish the draft release** so the
++ B2b Linux CUDA) is committed + pushed (87fc3ee, GitHub `main`), and the
+**`v0.1.0` tag is pushed** (matches the crate version per the CI guard) — the matrix
+is running. **Check the run, fix any red job, then publish the draft release** so the
 installers *and* the CUDA libs become downloadable. Fix whatever the first run
 surfaces — see the "_Live validation needed_" notes + the B2b verify-live list above
 (Windows whisper path/VC++ runtime, macOS ffmpeg URL, Linux libgomp, Jimver action
