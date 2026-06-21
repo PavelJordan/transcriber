@@ -9,13 +9,6 @@ export const REPORT_MODELS = [
   { value: "claude-opus-4-8", label: "Opus 4.8" },
 ];
 
-// Whisper compute device. `transcribe.py` auto-detects CUDA, falls back to CPU.
-export const DEVICES = [
-  { value: "auto", label: "Auto" },
-  { value: "cuda", label: "GPU" },
-  { value: "cpu", label: "CPU" },
-];
-
 // Options for the App-language and Output-language pickers. Endonyms, shown the
 // same regardless of the current UI language.
 export const LANGUAGES: { value: Lang; label: string }[] = [
@@ -25,7 +18,6 @@ export const LANGUAGES: { value: Lang; label: string }[] = [
 
 export type Prefs = {
   model: string;
-  device: string;
   reportType: string;
   appLang: Lang;
   outputLang: Lang;
@@ -35,7 +27,6 @@ const STORAGE_KEY = "transcriber.prefs";
 
 const DEFAULT_PREFS: Prefs = {
   model: REPORT_MODELS[0].value,
-  device: DEVICES[0].value,
   reportType: REPORT_TYPES[0].value,
   appLang: "cs",
   outputLang: "cs",

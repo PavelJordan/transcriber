@@ -6,12 +6,12 @@ import { open } from "@tauri-apps/plugin-dialog";
 import { ArrowRight, FileAudio, Loader2, Settings as SettingsIcon, ShieldCheck, Upload, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Field } from "./Field";
-import { DEVICES } from "./prefs";
 import type { Translate } from "./i18n";
 
 type SidecarEvent =
-  | { type: "start"; device: string; model: string; language: string; duration: number }
+  | { type: "start"; model: string; language: string; duration: number }
   | { type: "segment"; start: number; end: number; text: string }
+  | { type: "download"; percent: number }
   | { type: "done" };
 
 type Segment = { start: number; end: number; text: string };
@@ -30,30 +30,23 @@ function fileName(path: string): string {
   return path.split(/[/\\]/).pop() ?? path;
 }
 
-// Shows the sidecar's *resolved* device (Auto → GPU/CPU), not the chosen one.
-function deviceLabel(device: string): string {
-  return DEVICES.find((option) => option.value === device)?.label ?? device;
-}
-
 function Transcribe({
-  defaultDevice,
   onReport,
   onSettings,
   t,
 }: {
-  defaultDevice: string;
   onReport: (transcript: string) => void;
   onSettings: () => void;
   t: Translate;
 }) {
   const [file, setFile] = useState<string | null>(null);
-  const [model, setModel] = useState("large-v3");
-  const [device, setDevice] = useState(defaultDevice);
+  const [model, setModel] = useState("small");
   const [language, setLanguage] = useState("cs");
 
   const [status, setStatus] = useState<Status>("idle");
   const [segments, setSegments] = useState<Segment[]>([]);
-  const [info, setInfo] = useState<{ language: string; duration: number; device: string } | null>(null);
+  const [info, setInfo] = useState<{ language: string; duration: number } | null>(null);
+  const [download, setDownload] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [dragging, setDragging] = useState(false);
 
@@ -63,9 +56,12 @@ function Transcribe({
     const unlisten = listen<string>("transcribe://event", ({ payload }) => {
       const event = JSON.parse(payload) as SidecarEvent;
       if (event.type === "start") {
-        setInfo({ language: event.language, duration: event.duration, device: event.device });
+        setDownload(null);
+        setInfo({ language: event.language, duration: event.duration });
       } else if (event.type === "segment") {
         setSegments((prev) => [...prev, { start: event.start, end: event.end, text: event.text }]);
+      } else if (event.type === "download") {
+        setDownload(event.percent);
       } else if (event.type === "done") {
         setStatus("done");
       }
@@ -108,12 +104,12 @@ function Transcribe({
     setStatus("running");
     setSegments([]);
     setInfo(null);
+    setDownload(null);
     setError(null);
     try {
       await invoke("transcribe", {
         input: file,
         model,
-        device,
         language: language === "auto" ? null : language,
       });
     } catch (err) {
@@ -186,7 +182,6 @@ function Transcribe({
 
       <div className="flex flex-wrap items-end gap-4">
         <Field label={t("fieldModel")} value={model} onChange={setModel} options={MODELS.map((name) => ({ value: name, label: name }))} triggerClassName="w-36" />
-        <Field label={t("fieldDevice")} value={device} onChange={setDevice} options={DEVICES} triggerClassName="w-36" />
         <Field label={t("fieldLanguage")} value={language} onChange={setLanguage} options={languages} triggerClassName="w-36" />
         {running ? (
           <Button size="lg" variant="outline" className="ml-auto" onClick={cancelTranscribe}>
@@ -229,7 +224,7 @@ function Transcribe({
         <div ref={logRef} className="max-h-80 overflow-y-auto rounded-lg border bg-muted/30 p-4 text-sm">
           {info && (
             <p className="pb-2 text-xs text-muted-foreground">
-              {t("detected")} {info.language} · {formatTime(info.duration)} · {deviceLabel(info.device)}
+              {t("detected")} {info.language} · {formatTime(info.duration)}
             </p>
           )}
           {segments.map((segment, index) => (
@@ -241,7 +236,11 @@ function Transcribe({
           {running && (
             <p className="flex items-center gap-2 py-0.5 text-muted-foreground">
               <Loader2 className="size-3.5 animate-spin" />
-              {segments.length > 0 ? t("listening") : t("loadingModel")}
+              {download !== null && download < 100
+                ? `${t("downloadingModel")} ${download}%`
+                : segments.length > 0
+                  ? t("listening")
+                  : t("loadingModel")}
             </p>
           )}
         </div>

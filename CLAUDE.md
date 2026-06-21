@@ -72,21 +72,21 @@ agent harness). They read different context files, so we keep one source of trut
 
 ## Current status
 
-**Phase 3 + 3b + 3c + 3d done.** The full pipeline works in `app/`: Transcribe
-screen (sidecar, live log) → Report screen (keychain token, streamed Anthropic
-report, Markdown preview, export `.md` **and PDF**). `npm run build` + `cargo
-check`/`clippy` green; reviewed by the fresh-context agents on Opus high. The token
-lives in the OS keychain and never enters the webview; PDF export uses
-`window.print()` (OS "Save as PDF"), no PDF lib. **Live end-to-end run confirmed
-working** (transcribe → report → `.md` + PDF). Phase 3c added the no-API path: a
-**Copy prompt** button puts the editable prompt + transcript (`---` separator) on
-the clipboard, so users without an API key can paste into their own chat AI — the
-token is now **optional** (only "Generate report" needs it). Phase 3d removed the
-workspace clutter: in `--json` (app) mode the sidecar writes **no** files (no
-`.txt`/`.srt`/`.vtt`) — the transcript lives only in the app; the standalone
-script (run by hand) still writes all three. See the **Status** section of
-`docs/PLAN.md` — the source of truth across sessions. Next: Phase 4 (polish +
-Settings).
+**Phases 1–4 done; Phase 5 Stage A done (code + review), pending live-run.** The full
+pipeline works in `app/`: Transcribe (live log) → Report (keychain token, streamed
+Anthropic report, Markdown preview, export `.md` **and PDF**, or **Copy prompt** for
+the no-API path) → Settings + bilingual (cs default) UI/output. **Phase 5 Stage A**
+swapped the shipped transcription engine from the faster-whisper **Python** sidecar
+to a **whisper.cpp** native sidecar, *behind the unchanged UI*: the Rust `transcribe`
+command downloads the ggml model on first use (from `ggerganov/whisper.cpp` on HF),
+converts input → 16 kHz wav via system **ffmpeg**, spawns the `whisper-cli`
+`externalBin` sidecar, and parses its output into the same `start`/`segment`/`done`
+events (the UI only gained a `download` progress variant). The now-meaningless device
+picker was removed. `transcribe.py` stays as the owner's local dev/GPU path. `npm run
+build` + `cargo clippy` green; two fresh-eyes review rounds (Opus high). **Not yet
+live-run through the GUI** — see the live-run checklist + the full detail in the
+**Status** section of `docs/PLAN.md` (the source of truth across sessions). Next:
+Phase 5 Stage B (GPU variants + CI + bundle ffmpeg).
 
 > Git: push over **HTTPS via the `glab` credential helper**, not SSH (the local
 > SSH keys aren't authorized for the `hissetta` namespace). Already configured.

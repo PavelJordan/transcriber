@@ -20,6 +20,11 @@ transcribe.log
 # Local-only harness settings (bypass mode, personal allow rules)
 .claude/settings.local.json
 
+# whisper.cpp sidecar binary — platform-specific, built locally / by CI (Phase 5).
+# Build (CPU): clone ggml-org/whisper.cpp, cmake -DBUILD_SHARED_LIBS=OFF -DGGML_NATIVE=OFF,
+# build whisper-cli, copy to binaries/whisper-cli-<target-triple>.
+app/src-tauri/binaries/
+
 # Tauri / Node build output (ready for when app/ exists)
 node_modules/
 app/src-tauri/target/

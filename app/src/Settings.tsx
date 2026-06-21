@@ -4,7 +4,7 @@ import { ArrowLeft, KeyRound } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Field } from "./Field";
-import { DEVICES, LANGUAGES, REPORT_MODELS, type Prefs } from "./prefs";
+import { LANGUAGES, REPORT_MODELS, type Prefs } from "./prefs";
 import { REPORT_TYPES } from "./reportTypes";
 import { type Lang, type Translate } from "./i18n";
 
@@ -85,12 +85,6 @@ function Settings({
           value={prefs.model}
           onChange={(model) => onUpdate({ model })}
           options={REPORT_MODELS}
-        />
-        <Field
-          label={t("defaultDevice")}
-          value={prefs.device}
-          onChange={(device) => onUpdate({ device })}
-          options={DEVICES}
         />
         <Field
           label={t("defaultOutputType")}

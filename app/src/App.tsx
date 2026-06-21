@@ -23,12 +23,7 @@ function App() {
   }
   if (transcript === null) {
     return (
-      <Transcribe
-        defaultDevice={prefs.device}
-        onReport={setTranscript}
-        onSettings={() => setShowSettings(true)}
-        t={t}
-      />
+      <Transcribe onReport={setTranscript} onSettings={() => setShowSettings(true)} t={t} />
     );
   }
   return (

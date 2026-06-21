@@ -147,9 +147,10 @@ Each phase ends with a review pass (`docs/REVIEW.md`).
   follow-OS theme, consistent headers. Plus four UX wins beyond the locked design:
   transcription **progress bar**, **resolved-device** label, **Cancel**
   transcription, and **hide the gear while running** (can't lose in-flight work).
-- **Phase 5 — Package.** ⏳ Execute next session. **Locked: switch the sidecar to
-  whisper.cpp** and ship **separate installers** (CPU / Metal / CUDA) via GitHub
-  Actions. Full plan in the "Phase 5 — Packaging" section below.
+- **Phase 5 — Package.** **Stage A ✅** (engine swapped to whisper.cpp, CPU, behind
+  the unchanged UI — code + two review rounds; not yet live-run). **Stage B ⏳**
+  (GPU variants + CI + bundling). Ship **separate installers** (CPU / Metal / CUDA)
+  via GitHub Actions. Full plan in the "Phase 5 — Packaging" section below.
 
 ## Open questions (resolve before the phase that needs them)
 
@@ -214,6 +215,11 @@ shippable CPU app on every OS. **The React UI does not change.**
   CUDA-less box) rather than silently falling back.
 
 ### Stage B — GPU variants + CI (after Stage A runs end-to-end)
+- **Bundle ffmpeg** (all three reviewers flagged). Stage A calls system `ffmpeg`
+  by bare name (PATH) to decode input → 16 kHz wav; faster-whisper shipped its own
+  decoder, so this is a *new* runtime prerequisite. Bundle a static ffmpeg as a
+  second `externalBin` sidecar (or document the prerequisite) so the installers
+  stay self-contained.
 - **Builds**: Metal (Mac, free, automatic) + CUDA (Win/Linux). CUDA binaries build
   with just the **CUDA toolkit** in the image — **no GPU needed at build time**.
   Bundle cuBLAS + cudart in the NVIDIA installer; end users need only their driver.
@@ -244,6 +250,69 @@ shippable CPU app on every OS. **The React UI does not change.**
 7. Live run, then the 3 reviewers.
 
 ## Status
+
+**Phase 5 Stage A complete (code + two review rounds).** ✅ The shipped transcription
+engine is now **whisper.cpp** instead of the faster-whisper Python sidecar — behind
+the **unchanged** transcription UI. **Not yet live-run through the GUI** (see the
+checklist below); the app compiles + launches and the engine was verified by hand.
+
+What landed (Stage A):
+- **whisper.cpp CPU sidecar.** Built a static CPU binary (`cmake -DBUILD_SHARED_LIBS=OFF
+  -DGGML_NATIVE=OFF`, target `whisper-cli`, from `ggml-org/whisper.cpp`) and placed it
+  at `app/src-tauri/binaries/whisper-cli-<target-triple>` as a Tauri `externalBin`.
+  **Gotcha:** Tauri copies the sidecar *flat* next to the exe with the triple
+  stripped (dev: `target/debug/whisper-cli`, **not** `binaries/whisper-cli`), so the
+  Rust call is `.sidecar("whisper-cli")` (basename), even though the config entry is
+  `"binaries/whisper-cli"`. The binary is **gitignored** (platform-specific; CI
+  builds it in Stage B) — build steps are in `.gitignore`.
+- **Rust `transcribe` rewritten** (`lib.rs`): `ensure_model` (download the ggml model
+  on first use into the app data dir), `convert_to_wav` (system ffmpeg → 16 kHz mono
+  PCM, `-fflags +bitexact` so the header stays 44 bytes), `run_whisper` (spawn the
+  sidecar, parse stdout `[ts --> ts] text` lines + the stderr `auto-detected
+  language:` line into the **same** `start`/`segment`/`done` events the UI already
+  reads — `Transcribe.tsx`'s `SidecarEvent` only *gained* a `download` variant).
+  One error channel preserved. `transcribe.py` is untouched (still the owner's local
+  dev/GPU path and the standalone hand-run script).
+- **Model download = first-use, into the app data dir** (no bundling → small
+  installer). Source repo is **`ggerganov/whisper.cpp`** on HF — the newer
+  `ggml-org/whisper.cpp` **401s** without auth (learned the hard way). Progress shows
+  as "Downloading model… N%" (a new `download` event; reuses `reqwest`, already a dep).
+  Default model dropped from `large-v3` → **`small`** (large-v3 is slower-than-realtime
+  on CPU). Truncated-stream guard: verify `downloaded == content_length` before the
+  `.part`→`.bin` rename, so a short download is never cached as a complete model.
+- **Unified cancellation** via a single `state.cancelled` `AtomicBool`:
+  `cancel_transcribe` sets it *and* kills the current child, so it now also aborts an
+  in-flight model **download** (which has no child to kill — the round-1 ghost-run
+  bug). Replaced the old `take().is_none()` trick and the `Drain` enum.
+- **Device picker removed** (all three reviewers, unanimous round-1 #1). Under the
+  Stage B per-backend-installer design a runtime device choice is meaningless (a CPU
+  build's "auto"/"cpu" are synonyms) — it was future-code that lied. Deleted the
+  `available_devices` command, `prefs.device`, `DEVICES`, the resolved-device label,
+  and the `fieldDevice`/`defaultDevice` i18n keys. This *satisfies* the plan's "don't
+  offer GPU on a CPU build" intent; Stage B re-adds device selection only if a real
+  build needs it (e.g. a force-CPU toggle on the CUDA build).
+- Verified: `npm run build` (tsc+vite) + `cargo clippy` green; the dev app **launches**
+  (window opened); `ffmpeg → whisper-cli` run by hand with the **exact app args**
+  produces parseable segments (forced lang → no detection line; auto → detection
+  line present). Two full fresh-eyes review rounds (`minimalist`/`consistency`/`grug`,
+  Opus high). Round-2 fixes applied: truncated-download guard, the stale
+  "Downloading… 100%" line (now shown only while `< 100`), two misleading comments
+  reworded. Deliberately deferred: **ffmpeg bundling** → Stage B (packaging); the
+  cancel-then-instant-restart race is pre-existing and out of Stage A scope (the
+  single-run assumption is documented on `TranscribeState`).
+
+_Live-run checklist (next session, `cd app && npm run tauri dev`):_ drop a real
+recording → it transcribes via whisper.cpp (segments stream live, progress bar
+advances); the **first** use of a model shows "Downloading model… N%" then
+transcribes; **Cancel** stops a run (and a download) and returns to clean idle;
+**auto** language shows the detected language, forced `cs`/`en` is honored; the
+recording's folder stays clean (no files written); **Write report** still flows to
+the Report screen. The 466 MB `small` first-download takes a bit — pre-place
+`~/.local/share/com.hissetta.transcriber/models/ggml-small.bin` (or test with the
+`base` model already there) to skip the wait. Note: `large-v3` on CPU is
+slow-but-works; **medium/small** are the practical defaults.
+
+---
 
 **Phase 4 + report-types/CTA + localization rounds complete (code + review).** ✅
 Not yet visually run — needs one live `npm run tauri dev` pass (see caveat at the end).
@@ -499,15 +568,17 @@ to (a) remove the private consultation samples `0608/` + `0617/` — **moved to
 third-party/work references. Force-pushed to GitHub only. Never re-commit the
 samples (now gitignored: `*.txt`/`*.srt`/`*.vtt`/`transcribe.log`).
 
-**Next action — Phase 5, Stage A** (new session): swap the sidecar to whisper.cpp
-behind the unchanged UI — see the **"Phase 5 — Packaging"** section above for the
-locked plan + the Stage A task list. Phase 4 + report-types + localization are
-committed and pushed (`0eed3c9`+); the app is MIT-licensed and open-source on
-GitHub (`PavelJordan/transcriber`).
+**Next action — Phase 5, Stage B** (new session): after the owner's Stage A live-run
+passes (checklist in the Stage A status above), do GPU variants + CI + **bundle
+ffmpeg** — see the **"Phase 5 — Packaging"** section above. Stage A is uncommitted
+on this tree (engine swap behind the unchanged UI); commit + `git push github main`
+once the live-run confirms it. The whisper.cpp binary is gitignored — a fresh clone
+(and CI) must build it (steps in `.gitignore`).
 
-_Open Phase 2 follow-up:_ the sidecar resolves the `.venv` python + script via the
-compile-time `CARGO_MANIFEST_DIR`, so it only runs from this dev checkout. Packaging
-(Phase 5) must replace that path resolution.
+_Resolved (Stage A):_ the old Phase 2 follow-up — the sidecar resolving the `.venv`
+python + script via compile-time `CARGO_MANIFEST_DIR` — is **gone**. The whisper-cli
+sidecar resolves via Tauri `externalBin` (`.sidecar("whisper-cli")`) and the model
+via `app_data_dir`; no compile-time paths remain.
 
 _Update this section at the end of every working session: what's done, what's
 half-done, what's the next concrete action._
