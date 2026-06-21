@@ -135,6 +135,62 @@ Each phase ends with a review pass (`docs/REVIEW.md`).
 
 ## Status
 
+**Phase 4 — IN PROGRESS (design locked, nothing implemented yet).** Stopped right
+after analysis, before writing any code. Working tree is clean (`git status` clean
+at `3b96daf`). Resume from the plan below.
+
+_Phase 4 design decisions (locked this session — don't re-litigate):_
+- **New `Settings` screen** (third screen). Absorbs the Report screen's inline
+  **token** field + inline **prompt** field. Holds: API token, default report
+  model, default device, prompt template.
+- **Persistence = `localStorage`** (no new dep, no Rust). Token stays in keychain.
+  New module `app/src/prefs.ts`:
+  - `REPORT_MODELS` (Claude list, moved out of `Report.tsx`) and `DEVICES`
+    (Whisper device list, moved out of `Transcribe.tsx`) — now shared by 3 screens,
+    so extraction is justified (third use). Whisper `MODELS`/`LANGUAGES` **stay**
+    local to `Transcribe.tsx` (not in Settings).
+  - `type Prefs = { model; device; prompt }`, `loadPrefs()`, `savePrefs()`.
+    Defaults: `REPORT_MODELS[0].value`, `DEVICES[0].value`, `DEFAULT_REPORT_PROMPT`.
+  - `loadPrefs` stays **offensive** (no try/catch on `JSON.parse` — our own data).
+  - **Naming gotcha:** type/module is `prefs` (NOT `settings.ts`) on purpose — a
+    `Settings.tsx` + `settings.ts` pair differs only by case and collides on macOS
+    (Phase 5 builds `.dmg`). Screen = `Settings.tsx` (component `Settings`); config
+    type = `Prefs`.
+- **App owns prefs state** (`useState(loadPrefs)`), threads down, `updatePrefs(patch)`
+  merges + `savePrefs` + setState (auto-save, no Save button for model/device/prompt;
+  token keeps its own Save → keychain). Settings inputs are controlled off `prefs`.
+- **Navigation:** add `showSettings` boolean in `App.tsx`. `if (showSettings)`
+  render `<Settings>`; else current Transcribe/Report logic. Settings reachable via
+  a **gear icon** (lucide `Settings`, import aliased `SettingsIcon`) in the header
+  of both Transcribe and Report. Known tradeoff accepted: visiting Settings unmounts
+  Report, so an in-progress generated report is lost on detour — fine for v1, lift
+  state later only if it bites (no future code now).
+- **Report.tsx:** drop token UI + inline prompt `<details>` + `DEFAULT_REPORT_PROMPT`
+  import. New props `defaultModel`, `prompt`, `onSettings`. `model = useState(defaultModel)`
+  (per-run picker kept, seeded from default). `prompt` from prop. Keep the editable
+  **transcript** `<details>` (it's correction, not a setting). Still `has_token`-gate
+  Generate; when no token, show a hint line linking to Settings; Copy prompt always works.
+- **Transcribe.tsx:** import `DEVICES` from prefs (drop local copy). New props
+  `defaultDevice`, `onSettings`. `device = useState(defaultDevice)`. Add gear to header.
+- **Theme = follow OS** (`docs/PLAN.md` open question P4 → "follow OS"). In `main.tsx`:
+  `matchMedia("(prefers-color-scheme: dark)")`, toggle `.dark` on
+  `document.documentElement`, listen for `change`. ~6 lines, no React. The `.dark`
+  CSS vars already exist in `index.css`; nothing toggles them today.
+- **Polish:** consistent header (left: back+title / right: privacy badge + gear).
+  Existing empty/loading/error states are already decent — light touch only.
+
+_What's left = implement the above, then run all 3 reviewers (Opus high), then a
+live `npm run tauri dev` pass (check: OS dark-mode toggles theme; Settings persists
+across app restart; Report works with token moved to Settings; gear nav)._
+
+_Caveat for next session:_ my ad-hoc lucide-icon existence check (deriving icon
+filenames in `node_modules`) reported all icons MISSING — **ignore it, the check
+was wrong** (filename derivation off). The icons are real: the working code already
+imports `ArrowRight`/`CheckCircle2`/`ShieldCheck`/`ArrowLeft`/`Check`/`KeyRound`
+from `lucide-react`. Just use them; `Settings` icon is standard too.
+
+---
+
 **Phase 3 + 3b + 3c + 3d complete.** ✅ The Report screen turns a transcript into a
 streamed Markdown report via the Anthropic API and exports it as `.md` or PDF; the
 token lives in the OS keychain and never enters the webview. Phase 3c adds the
@@ -253,12 +309,11 @@ the local SSH keys aren't authorized for the `hissetta` namespace, but the `glab
 token is. Already configured in this clone (`credential.helper = !glab auth
 git-credential`). Don't switch the remote back to SSH.
 
-**Next action — Phase 4 (polish), in a new session.**
-Phase 4: layout, empty/error/loading states, the
-privacy badges, and the real
-**Settings panel** (absorbs the Report screen's inline token + prompt fields;
-persist the edited prompt + default model). Follow OS light/dark. (The full API
-pipeline is already live-verified — see above.) End with a reviewer pass.
+**Next action — implement Phase 4** per the locked design at the top of this
+Status section (new `Settings` screen + `prefs.ts` localStorage persistence; move
+token + prompt out of Report; gear-icon nav; follow-OS theme in `main.tsx`). Then
+run the 3 reviewers and a live `npm run tauri dev` pass. Nothing is written yet —
+start from a clean tree at `3b96daf`.
 
 _Open Phase 2 follow-up:_ the sidecar resolves the `.venv` python + script via the
 compile-time `CARGO_MANIFEST_DIR`, so it only runs from this dev checkout. Packaging
