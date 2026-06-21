@@ -39,7 +39,7 @@ must produce a real installer, not just run from a dev shell.
   binary, no Python/CUDA), but it means redoing the working transcription path.
   **Kept as the fallback**: if bundling Python+CUDA for other users proves too
   painful in Phase 5, swap the sidecar to a whisper.cpp binary — the UI does not
-  change.
+  change. **Now the chosen ship engine** (Phase 5, decided) — see the Phase 5 section.
 
 ## Sidecar contract
 
@@ -147,12 +147,14 @@ Each phase ends with a review pass (`docs/REVIEW.md`).
   follow-OS theme, consistent headers. Plus four UX wins beyond the locked design:
   transcription **progress bar**, **resolved-device** label, **Cancel**
   transcription, and **hide the gear while running** (can't lose in-flight work).
-- **Phase 5 — Package.** Build installers. If Python+CUDA bundling is too painful
-  for other users, switch the sidecar to whisper.cpp (UI untouched).
+- **Phase 5 — Package.** ⏳ Execute next session. **Locked: switch the sidecar to
+  whisper.cpp** and ship **separate installers** (CPU / Metal / CUDA) via GitHub
+  Actions. Full plan in the "Phase 5 — Packaging" section below.
 
 ## Open questions (resolve before the phase that needs them)
 
-- P2: bundle a Python runtime, or assume a local `.venv`? (Dev: `.venv`. Ship: decide in P5.)
+- P2: bundle a Python runtime, or assume a local `.venv`? (**Resolved in P5:** drop
+  Python for shipping — whisper.cpp binary; `.venv` stays the owner's dev path.)
 - P3: stream tokens into the preview, or render on completion? (Lean: stream.)
 - P3b: PDF via webview print-to-PDF, or a small html→pdf lib? (Lean: reuse the
   preview HTML + a print stylesheet; pick the lib only if print quality is poor.)
@@ -164,6 +166,82 @@ Each phase ends with a review pass (`docs/REVIEW.md`).
 - P3d: write nothing by default in app mode, or offer an opt-in "Save transcript"?
   (Lean: nothing by default; add an explicit save only if asked.)
 - P4: light/dark, or follow OS theme? (Lean: follow OS.)
+- P5: shipping engine? **Resolved: whisper.cpp** (replaces faster-whisper for the
+  shipped build; faster-whisper `.venv` stays the owner's local GPU/dev path).
+- P5: GPU support? **Resolved: all variants** — separate installers CPU / Metal
+  (Mac, free) / CUDA (NVIDIA Win+Linux).
+- P5: build infra? **Resolved: GitHub Actions** (hosted Win/Mac/Linux runners +
+  `tauri-action`); CUDA binaries build with the toolkit only (no GPU at build time).
+- P5: models bundled or downloaded? (Lean: small/medium default; download on first
+  run + optional small bundled fallback.)
+
+## Phase 5 — Packaging (locked plan, execute next session)
+
+Goal: real, installable builds for the owner + a few other people; code is
+open-source (MIT) on GitHub. Decisions below are locked — don't re-litigate the engine.
+
+**Engine = whisper.cpp** (replaces the `transcribe.py` / faster-whisper sidecar for
+shipped builds). Why: one self-contained native binary, no Python, ggml/GGUF models
+(same Whisper weights → equivalent accuracy). Its CUDA build needs only **cuBLAS +
+cudart** at runtime (no cuDNN, no Python — far lighter than faster-whisper), and
+**Metal is built in** on Apple Silicon (free GPU). Keep the faster-whisper `.venv`
+path as the **owner's local dev + GPU** path (you have CUDA configured; no reason to
+bundle it for one person). The standalone `transcribe.py` stays for hand use.
+
+**Ship separate installers per backend** (not one fat installer): CPU, Metal (Mac),
+CUDA (NVIDIA Win/Linux). Hand each person the right one.
+
+### Stage A — engine-agnostic sidecar swap (do FIRST; CPU; no CI needed)
+The bulk of the irreversible work, identical for every variant. After it you have a
+shippable CPU app on every OS. **The React UI does not change.**
+- Rust `transcribe` command: spawn the **whisper.cpp binary** instead of the
+  `.venv` python + `transcribe.py`. Keep the existing one-error-channel +
+  event-forward shape in `lib.rs`.
+- Re-implement the `--json` contract by parsing whisper.cpp output into the existing
+  `start` / `segment` / `done` events (`Transcribe.tsx` + `SidecarEvent` untouched).
+  `whisper-cli` prints timestamped segments live; or use its JSON output. Map the
+  current dropdowns to whisper.cpp flags: model file, `--language`, threads, backend.
+- **Fix the dev-only path** (Phase 2 follow-up): today the sidecar resolves
+  `.venv`/`transcribe.py` via compile-time `CARGO_MANIFEST_DIR` — replace with Tauri
+  resource resolution for the bundled binary + model.
+- **Models**: ggml/GGUF from `ggerganov/whisper.cpp` (HF). Default **small or
+  medium** — large-v3 is ~real-time-or-slower on CPU, so impractical for hour-long
+  recordings (RTF reasoning from the session). Decide: bundle a small default and/or
+  download the chosen model on first run (keeps installers small). Quantized GGUF
+  (q5/q8) speeds CPU up further.
+- **Device dropdown reflects the build**: "Auto" picks the best available backend;
+  hide/disable "GPU" when the shipped binary can't honor it (CPU build on a
+  CUDA-less box) rather than silently falling back.
+
+### Stage B — GPU variants + CI (after Stage A runs end-to-end)
+- **Builds**: Metal (Mac, free, automatic) + CUDA (Win/Linux). CUDA binaries build
+  with just the **CUDA toolkit** in the image — **no GPU needed at build time**.
+  Bundle cuBLAS + cudart in the NVIDIA installer; end users need only their driver.
+- **CI = GitHub Actions** (hosted ubuntu/windows/macos runners, incl. Apple
+  Silicon) with the official **`tauri-action`** matrix. Tauri can't cross-compile
+  installers — each OS must build on its own runner; GitHub provides all three with
+  no owned hardware. Trigger the full matrix **on version tags only**.
+- **CI cost**: free + unlimited for **public** repos (ours is public). If ever
+  private: ~2000 free min/mo, multipliers Linux ×1 / Windows ×2 / **macOS ×10** →
+  tags only. AWS macOS avoided (24h-minimum host billing); GitLab macOS/Windows are
+  paid/weak.
+- **Code signing / notarization** (decide here, not now): unsigned apps hit macOS
+  Gatekeeper + Windows SmartScreen. For a few people, ship unsigned with a
+  right-click→Open / "Run anyway" note, or pay later (Apple Developer $99/yr,
+  Windows cert ~$100–400/yr) + add CI secrets.
+- **OSS polish**: add a `README` (what it is, install, the privacy story, build from
+  source). `LICENSE` is already MIT.
+
+### Stage A first task list (concrete starting point)
+1. Get a whisper.cpp Linux binary + a small ggml model onto the machine (build from
+   source or grab a release).
+2. Rust: swap the spawn + arg mapping.
+3. Parse whisper.cpp output → `start`/`segment`/`done`; confirm `Transcribe.tsx` is
+   untouched.
+4. Resource-path resolution (drop `CARGO_MANIFEST_DIR`).
+5. Model strategy (bundle small + first-run download).
+6. Device-dropdown-reflects-build.
+7. Live run, then the 3 reviewers.
 
 ## Status
 
@@ -404,13 +482,20 @@ dev` works directly. On a fresh box, install first:
 **Git note:** push over **HTTPS with the `glab` credential helper**, not SSH —
 the local SSH keys aren't authorized for the `hissetta` namespace, but the `glab`
 token is. Already configured in this clone (`credential.helper = !glab auth
-git-credential`). Don't switch the remote back to SSH.
+git-credential`). Don't switch the GitLab remote back to SSH.
 
-**Next action — live-run Phase 4** (`cd app && npm run tauri dev`) against the
-checklist above, then commit. After that, **Phase 5 — Package**: build installers;
-if bundling Python+CUDA for other users is too painful, swap the sidecar to a
-whisper.cpp binary (UI untouched) and fix the dev-only `CARGO_MANIFEST_DIR` sidecar
-path resolution (see the Phase 2 follow-up below). Phase 4 is written but uncommitted.
+**Open source / GitHub:** MIT-licensed (`LICENSE`), public on GitHub at
+**`PavelJordan/transcriber`** (remote `github`,
+`git@github.com:PavelJordan/transcriber.git`, **SSH — verified working** for this
+account). Push to **both** remotes: `origin` (GitLab, HTTPS via glab) and `github`
+(SSH). GitHub is the open-source home and where Phase 5 CI (GitHub Actions) runs.
+The SSH caveat above is GitLab/`hissetta`-specific; GitHub SSH is fine.
+
+**Next action — Phase 5, Stage A** (new session): swap the sidecar to whisper.cpp
+behind the unchanged UI — see the **"Phase 5 — Packaging"** section above for the
+locked plan + the Stage A task list. Phase 4 + report-types + localization are
+committed and pushed (`0eed3c9`+); the app is MIT-licensed and open-source on
+GitHub (`PavelJordan/transcriber`).
 
 _Open Phase 2 follow-up:_ the sidecar resolves the `.venv` python + script via the
 compile-time `CARGO_MANIFEST_DIR`, so it only runs from this dev checkout. Packaging
