@@ -24,6 +24,19 @@ const KEYCHAIN_ACCOUNT: &str = "anthropic-api-token";
 // ggml Whisper weights, downloaded on first use into the app data dir.
 const MODEL_REPO: &str = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main";
 
+// CUDA build only: the cuBLAS/cudart runtime libs are ~600 MB, so they're fetched on
+// first use into the app data dir (not bundled) and put on the sidecar's
+// LD_LIBRARY_PATH. CI uploads them to the matching release.
+#[cfg(feature = "cuda")]
+const CUDA_LIB_BASE: &str = concat!(
+    "https://github.com/PavelJordan/transcriber/releases/download/v",
+    env!("CARGO_PKG_VERSION"),
+    "/"
+);
+// Keep in sync with the upload step in .github/workflows/release.yml.
+#[cfg(feature = "cuda")]
+const CUDA_LIBS: [&str; 3] = ["libcudart.so.12", "libcublas.so.12", "libcublasLt.so.12"];
+
 #[tauri::command]
 async fn transcribe(
     app: AppHandle,
@@ -39,14 +52,24 @@ async fn transcribe(
         return Ok(());
     }
 
+    #[cfg(feature = "cuda")]
+    let cuda_dir = {
+        let dir = ensure_cuda_libs(&app, &state).await?;
+        if state.cancelled.load(Ordering::Relaxed) {
+            return Ok(());
+        }
+        Some(dir)
+    };
+    #[cfg(not(feature = "cuda"))]
+    let cuda_dir: Option<PathBuf> = None;
+
     let wav = std::env::temp_dir().join(format!("transcriber-{}.wav", std::process::id()));
     let outcome = async {
         convert_to_wav(&app, &state, &input, &wav).await?;
         if state.cancelled.load(Ordering::Relaxed) {
             return Ok(());
         }
-        let duration = wav_duration_secs(&wav);
-        run_whisper(&app, &state, &model, &model_path, &wav, duration, language).await
+        run_whisper(&app, &state, &model, &model_path, &wav, language, cuda_dir.as_deref()).await
     }
     .await;
     let _ = std::fs::remove_file(&wav);
@@ -62,9 +85,7 @@ fn cancel_transcribe(state: tauri::State<'_, TranscribeState>) -> Result<(), Str
     Ok(())
 }
 
-// Returns the local ggml model path, downloading it from Hugging Face on first
-// use. Progress is forwarded to the UI as `transcribe://event`. On cancel it
-// stops early; the caller checks `state.cancelled` and won't use the path.
+// Returns the local ggml model path, downloading it from Hugging Face on first use.
 async fn ensure_model(
     app: &AppHandle,
     state: &tauri::State<'_, TranscribeState>,
@@ -73,30 +94,60 @@ async fn ensure_model(
     let dir = app.path().app_data_dir().map_err(|err| err.to_string())?.join("models");
     std::fs::create_dir_all(&dir).map_err(|err| err.to_string())?;
     let path = dir.join(format!("ggml-{model}.bin"));
-    if path.exists() {
-        return Ok(path);
+    if !path.exists() {
+        download_file(app, state, &format!("{MODEL_REPO}/ggml-{model}.bin"), &path).await?;
     }
+    Ok(path)
+}
 
+// CUDA build only: ensure the cuBLAS/cudart libs are in the app data dir and return
+// that dir (for the sidecar's LD_LIBRARY_PATH). Fetches each on first use.
+#[cfg(feature = "cuda")]
+async fn ensure_cuda_libs(
+    app: &AppHandle,
+    state: &tauri::State<'_, TranscribeState>,
+) -> Result<PathBuf, String> {
+    let dir = app.path().app_data_dir().map_err(|err| err.to_string())?.join("cuda");
+    std::fs::create_dir_all(&dir).map_err(|err| err.to_string())?;
+    for lib in CUDA_LIBS {
+        let path = dir.join(lib);
+        if !path.exists() {
+            download_file(app, state, &format!("{CUDA_LIB_BASE}{lib}"), &path).await?;
+            if state.cancelled.load(Ordering::Relaxed) {
+                return Ok(dir);
+            }
+        }
+    }
+    Ok(dir)
+}
+
+// Writes to a `.part` and renames on success, so an interrupted download is never
+// mistaken for a complete file. On cancel: removes the `.part`, returns Ok (the
+// caller checks `state.cancelled`).
+async fn download_file(
+    app: &AppHandle,
+    state: &tauri::State<'_, TranscribeState>,
+    url: &str,
+    dest: &Path,
+) -> Result<(), String> {
     let mut response = reqwest::Client::new()
-        .get(format!("{MODEL_REPO}/ggml-{model}.bin"))
+        .get(url)
         .send()
         .await
-        .map_err(|err| format!("Failed to download model: {err}"))?;
+        .map_err(|err| format!("Failed to download: {err}"))?;
     if !response.status().is_success() {
-        return Err(format!("Model download failed ({}): {model}", response.status()));
+        return Err(format!("Download failed ({}): {url}", response.status()));
     }
     let total = response.content_length().unwrap_or(0);
 
-    // Download to a temp name and rename on success, so a partial file is never
-    // mistaken for a complete model on the next run.
-    let part = path.with_extension("part");
+    let part = dest.with_extension("part");
     let mut file = std::fs::File::create(&part).map_err(|err| err.to_string())?;
     let mut downloaded: u64 = 0;
     let mut last_percent: u64 = 0;
     while let Some(chunk) = response.chunk().await.map_err(|err| err.to_string())? {
         if state.cancelled.load(Ordering::Relaxed) {
             let _ = std::fs::remove_file(&part);
-            return Ok(path);
+            return Ok(());
         }
         file.write_all(&chunk).map_err(|err| err.to_string())?;
         downloaded += chunk.len() as u64;
@@ -107,13 +158,12 @@ async fn ensure_model(
         }
     }
     file.flush().map_err(|err| err.to_string())?;
-    // A truncated stream can end as Ok(None); don't cache a short file as complete.
     if total > 0 && downloaded != total {
         let _ = std::fs::remove_file(&part);
-        return Err(format!("Model download incomplete: {downloaded}/{total} bytes"));
+        return Err(format!("Download incomplete: {downloaded}/{total} bytes"));
     }
-    std::fs::rename(&part, &path).map_err(|err| err.to_string())?;
-    Ok(path)
+    std::fs::rename(&part, dest).map_err(|err| err.to_string())?;
+    Ok(())
 }
 
 // whisper.cpp's CLI reads 16 kHz mono PCM, so decode any input to that first.
@@ -143,7 +193,8 @@ async fn convert_to_wav(
     ];
     let (mut events, child) = app
         .shell()
-        .command("ffmpeg")
+        .sidecar("ffmpeg")
+        .map_err(|err| err.to_string())?
         .args(args)
         .spawn()
         .map_err(|err| format!("Failed to start ffmpeg: {err}"))?;
@@ -188,11 +239,12 @@ async fn run_whisper(
     model: &str,
     model_path: &Path,
     wav: &Path,
-    duration: f64,
     language: Option<String>,
+    cuda_dir: Option<&Path>,
 ) -> Result<(), String> {
     // whisper.cpp is memory-bandwidth bound; more than ~8 threads rarely helps.
     let threads = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4).min(8);
+    let duration = wav_duration_secs(wav);
     let args = vec![
         "-m".into(),
         model_path.to_string_lossy().into_owned(),
@@ -203,11 +255,15 @@ async fn run_whisper(
         "-t".into(),
         threads.to_string(),
     ];
-    let (mut events, child) = app
+    let mut command = app
         .shell()
         .sidecar("whisper-cli")
         .map_err(|err| err.to_string())?
-        .args(args)
+        .args(args);
+    if let Some(dir) = cuda_dir {
+        command = command.env("LD_LIBRARY_PATH", dir.to_string_lossy().to_string());
+    }
+    let (mut events, child) = command
         .spawn()
         .map_err(|err| format!("Failed to start transcription: {err}"))?;
     *state.child.lock().unwrap() = Some(child);

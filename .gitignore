@@ -20,9 +20,13 @@ transcribe.log
 # Local-only harness settings (bypass mode, personal allow rules)
 .claude/settings.local.json
 
-# whisper.cpp sidecar binary — platform-specific, built locally / by CI (Phase 5).
-# Build (CPU): clone ggml-org/whisper.cpp, cmake -DBUILD_SHARED_LIBS=OFF -DGGML_NATIVE=OFF,
-# build whisper-cli, copy to binaries/whisper-cli-<target-triple>.
+# Sidecar binaries — platform-specific, built/fetched locally or by CI (Phase 5).
+# The release workflow (.github/workflows/release.yml) is the source of truth; for
+# local dev produce both for your <target-triple> (e.g. x86_64-unknown-linux-gnu):
+#   whisper-cli: clone ggml-org/whisper.cpp, cmake -DBUILD_SHARED_LIBS=OFF
+#     -DGGML_NATIVE=OFF, build whisper-cli → binaries/whisper-cli-<triple>
+#   ffmpeg: grab a static build (Linux: johnvansickle.com; Win/Mac: BtbN/evermeet)
+#     → binaries/ffmpeg-<triple>
 app/src-tauri/binaries/
 
 # Tauri / Node build output (ready for when app/ exists)

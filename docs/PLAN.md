@@ -148,9 +148,10 @@ Each phase ends with a review pass (`docs/REVIEW.md`).
   transcription **progress bar**, **resolved-device** label, **Cancel**
   transcription, and **hide the gear while running** (can't lose in-flight work).
 - **Phase 5 — Package.** **Stage A ✅** (engine swapped to whisper.cpp, CPU, behind
-  the unchanged UI — code + two review rounds; not yet live-run). **Stage B ⏳**
-  (GPU variants + CI + bundling). Ship **separate installers** (CPU / Metal / CUDA)
-  via GitHub Actions. Full plan in the "Phase 5 — Packaging" section below.
+  the unchanged UI — code + two review rounds; live-run confirmed). **Stage B 🟡**
+  (ffmpeg bundled + CI for CPU/Metal done locally; CUDA deferred — needs live CI).
+  Ship **separate installers** (CPU / Metal / CUDA) via GitHub Actions. Full plan in
+  the "Phase 5 — Packaging" section below.
 
 ## Open questions (resolve before the phase that needs them)
 
@@ -250,6 +251,145 @@ shippable CPU app on every OS. **The React UI does not change.**
 7. Live run, then the 3 reviewers.
 
 ## Status
+
+**Phase 5 Stage B / B2b — Linux CUDA: validated on real GPU + wired into app/CI
+(2026-06-21).** ✅ (Machine gained an NVIDIA RTX 4050 + driver 580, so the piece I'd
+deferred as "untestable without live NVIDIA" is proven.) **Decision: first-run
+download** of the CUDA libs (not bundled — keeps the installer ~200 MB vs ~800 MB,
+mirrors the model fetch). Engine code done + clippy-clean (default and `--features
+cuda`); CI `linux-cuda` job written. Needs a live tag to validate the CI (untestable
+locally), and a `tauri build --features cuda` smoke test (heavy/crash-risky locally).
+
+What was proven (local, user-space, no sudo):
+- **Built a CUDA `whisper-cli`** from whisper.cpp v1.9.1, `-DGGML_CUDA=ON
+  -DBUILD_SHARED_LIBS=OFF -DCMAKE_CUDA_ARCHITECTURES=89` (Ada). Toolchain via
+  **micromamba** (no sudo, this box has no CUDA toolkit): conda-forge `cuda-nvcc
+  12.6` (pulls gcc/g++ **13** — the nvidia-channel nvcc is 12.4 and rejects gcc-14;
+  system gcc-15 is too new for any CUDA 12.x). Reproducible recipe lives at
+  `~/cuda-build/build.sh` (outside the repo). CUDA headers/libs are under the conda
+  env's `targets/x86_64-linux/{include,lib}` — exposed via `CPATH`/`LIBRARY_PATH`.
+- **Driver-only run succeeded.** This box has the **driver but no toolkit/runtime**
+  in the loader path — exactly the end-user condition. Co-located `whisper-cli` + the
+  3 CUDA libs with `patchelf --set-rpath '$ORIGIN'`, run under `env -i` (no conda, no
+  `LD_LIBRARY_PATH`) → GPU detected, CUDA0 backend, `jfk.wav` transcribed correctly.
+- **CUDA bundle list = `libcudart.so.12`, `libcublas.so.12`, `libcublasLt.so.12`.**
+  The driver's `libcuda.so.1` resolves from the system and must NOT be bundled.
+  (Plus the same `libstdc++`/`libgomp` story as the CPU build — system-provided on a
+  CI ubuntu build.)
+- **Size reality (the open decision):** `libcublasLt.so.12` is **491 MB**, `libcublas`
+  108 MB, and the static CUDA binary itself **205 MB** → a bundled CUDA installer is
+  **~800 MB** vs ~100 MB for CPU. So the real choice is **bundle in the installer**
+  (big download, fully offline) **vs first-run download** of the CUDA libs into
+  `app_data_dir` (keeps the installer small, mirrors how the *model* is already
+  fetched on first use) — RESOLVE THIS before wiring it up.
+- **Loader mechanism for Tauri:** Tauri flattens the sidecar next to the main exe
+  but puts `bundle.resources` in a *different* dir, so `$ORIGIN`-of-sidecar won't
+  find resource libs. Shipped approach = set **`LD_LIBRARY_PATH` on the whisper-cli
+  spawn in Rust** pointing at the resolved lib dir (resource dir if bundled, or
+  `app_data_dir` if downloaded). One harmless code path: on CPU/Metal builds that
+  dir simply has no CUDA libs. (Windows-CUDA equivalent later: DLLs next to the exe.)
+- **Build-crash lessons (cost two machine freezes):** ggml-cuda kernels are 2–4 GB
+  *each* under nvcc — `cmake --build -j` (all 20 cores) OOMs and freezes the box; use
+  **`-j4`**. A freeze also leaves **zero-byte object files** that incremental builds
+  skip (→ bogus `undefined reference to ggml_backend_cpu_reg` at link), so after a
+  crash do a **clean** rebuild. **zram** (zstd, ram/2) set up as the safety net.
+
+What got wired (this session, after the first-run-download decision):
+- **Rust (`lib.rs`).** Extracted the model download into a reusable `download_file`
+  (chunked + `download` progress event + cancel + truncation guard); `ensure_model`
+  now calls it. Added a **`cuda` cargo feature** (`Cargo.toml`, off by default):
+  when on, `ensure_cuda_libs` fetches `libcudart.so.12`/`libcublas.so.12`/
+  `libcublasLt.so.12` on first use into `app_data_dir/cuda` and `run_whisper` sets
+  `LD_LIBRARY_PATH` to that dir on the whisper-cli spawn. **One harmless code path**
+  — CPU/Metal builds pass `None` (no env set). Download URL is the matching GitHub
+  release (`.../download/v{CARGO_PKG_VERSION}/<lib>`). Dropped `duration` as a
+  `run_whisper` arg (compute it inside from `wav`) to stay under clippy's arg limit.
+  The UI is unchanged — the CUDA libs reuse the existing `download` progress event
+  (so first-run shows "Downloading model… N%" while fetching libs; minor label
+  imprecision, deliberately no UI churn).
+- **CI (`release.yml`).** New `linux-cuda` matrix entry: installs the CUDA toolkit
+  (Jimver action, no GPU needed to build), builds whisper-cli with `-DGGML_CUDA=ON
+  -DCMAKE_CUDA_ARCHITECTURES=all-major`, `patchelf --remove-rpath` (so it uses only
+  the app-fetched libs), builds the app with `--features cuda` + a `tauri.cuda.conf
+  .json` overlay (productName `transcriber-cuda`, so the installer doesn't collide
+  with linux-cpu's), then uploads the 3 CUDA libs to the release for the first-run
+  fetch. (Draft-release assets are downloadable only after the draft is published —
+  publish to make installers + libs live.)
+- **Verified locally:** `cargo clippy` clean both default and `--features cuda`;
+  release.yml + overlay parse. **Not** verified: the CI job (needs a live tag) and a
+  real `tauri build --features cuda` installer (heavy local build, deferred).
+  Best-effort/verify-live in the CI: the Jimver action version + `cuda: 12.6.2`, the
+  `--config` path resolution, and that the published-release lib URLs resolve.
+
+Next for B2b: reviewers → commit → live tag to shake out the CI. **Windows-CUDA**
+still needs CI (no local Windows+NVIDIA box); same shape (DLLs next to the exe
+instead of LD_LIBRARY_PATH).
+
+---
+
+**Phase 5 Stage B — ffmpeg bundled + CI (CPU + Metal); CUDA deferred. Code +
+reviews + local verify done (2026-06-21); needs a live tag to validate CI.** 🟡
+Not yet committed/pushed (uncommitted tree on `main`).
+
+What landed (Stage B, this session):
+- **ffmpeg is now a bundled sidecar** (all three Stage-A reviewers' top flag).
+  `convert_to_wav` switched from `.command("ffmpeg")` (bare PATH lookup) to
+  `.sidecar("ffmpeg")`, mirroring the whisper-cli pattern (`.sidecar(...)
+  .map_err(...)?`); `tauri.conf.json` `externalBin` gained `"binaries/ffmpeg"`. A
+  static ffmpeg (johnvansickle GPL, 80 MB) is placed at
+  `binaries/ffmpeg-x86_64-unknown-linux-gnu` for local dev (gitignored like
+  whisper-cli; fetch steps in `.gitignore`). The installers are now self-contained
+  — no system ffmpeg prerequisite. The React UI and `transcribe.py` are untouched.
+  Verified locally: `cargo clippy` + `npm run build` green; tauri-build copies both
+  sidecars next to the dev binary (`target/debug/{ffmpeg,whisper-cli}`), so
+  `.sidecar("ffmpeg")` resolves to the bundled binary, not PATH; the bundled static
+  ffmpeg runs the app's *exact* conversion args and yields the 44-byte-header wav
+  the `wav_duration_secs` math assumes.
+- **GitHub Actions release workflow** (`.github/workflows/release.yml`, new). Tags
+  only (`v*`), `permissions: contents: write`, `fail-fast: false`. A `tauri-action`
+  matrix over three variants — **linux-cpu** (ubuntu-22.04), **windows-cpu**
+  (windows-latest), **macos-metal** (macos-14 / aarch64, Metal embedded via
+  `-DGGML_METAL_EMBED_LIBRARY=ON`). Each job: builds `whisper-cli` from
+  `ggml-org/whisper.cpp` **v1.9.1** static (`-DBUILD_SHARED_LIBS=OFF
+  -DGGML_NATIVE=OFF`), fetches a static ffmpeg, drops both at
+  `binaries/<name>-<triple>(.exe)` **before** tauri builds (the externalBin
+  must-exist invariant), `npm ci`, then `tauri-action` → a **draft** GitHub release.
+  No per-variant rename needed yet (one variant per OS → the OS already
+  distinguishes the installers). YAML parses; logic can only be proven by a real tag.
+- **README rewritten** for the public repo: the privacy story, per-OS install table,
+  **unsigned-app run-anyway** notes (macOS right-click→Open / `xattr`; Windows
+  SmartScreen → Run anyway), build-from-source, and ffmpeg's **GPL** attribution
+  (MIT app aggregating a GPL binary — source pointed to upstream).
+
+Decisions / honest scope:
+- **Code signing** — decided **ship unsigned** for now (a few people): documented in
+  the README. Paid signing (Apple $99/yr, Windows cert) + CI secrets is a later call.
+- **CUDA deferred to a focused follow-up (B2b), on purpose.** The build is easy
+  (Jimver/cuda-toolkit + `-DGGML_CUDA=ON`, no GPU needed at build time); the real
+  work is **bundling the runtime libs + the loader path**, which can't be made
+  correct-by-construction here. A CUDA `whisper-cli` dynamically links
+  `libcudart`/`libcublas`/`libcublasLt`, so the installer must ship them next to the
+  flattened sidecar — on Linux via an `$ORIGIN` rpath or a spawn-time
+  `LD_LIBRARY_PATH` (a Rust change — it escapes pure CI YAML), on Windows via the
+  co-located `cudart64_*/cublas64_*/cublasLt64_*` DLLs. Untestable without live
+  NVIDIA CI, so shipping it now would be unrun aspirational code. Captured here so
+  the locked "all variants" decision isn't lost.
+- **macOS arm64 static ffmpeg has no official upstream** — pinned a third-party
+  build (osxexperts); flagged in the workflow to bump per ffmpeg release.
+
+_Live validation needed (owner, on a throwaway/real tag):_ push a `v*` tag and watch
+the matrix — the three OS jobs each produce an installer attached to a draft release.
+Things most likely to need a fix on first run (can only surface live): the Windows
+whisper build output path (`build/bin/Release/whisper-cli.exe` assumes the VS
+multi-config generator) and Windows VC++ runtime self-containment (default `/MD`
+links `vcruntime140.dll` — ubiquitous, but add `-DCMAKE_MSVC_RUNTIME_LIBRARY=
+MultiThreaded` if a clean box complains); on **Linux** the static whisper-cli still
+dynamically links OpenMP (`libgomp.so.1`) — present on any normal desktop, but drop
+it with `-DGGML_OPENMP=OFF` if a clean box complains; the macOS ffmpeg URL/extract;
+and the unsigned-launch UX on each OS. Then a real transcription end-to-end per
+installer.
+
+---
 
 **Phase 5 Stage A complete + live-run confirmed (2026-06-21).** ✅ The shipped
 transcription engine is now **whisper.cpp** instead of the faster-whisper Python
@@ -571,11 +711,14 @@ to (a) remove the private consultation samples `0608/` + `0617/` — **moved to
 third-party/work references. Force-pushed to GitHub only. Never re-commit the
 samples (now gitignored: `*.txt`/`*.srt`/`*.vtt`/`transcribe.log`).
 
-**Next action — Phase 5, Stage B** (new session): GPU variants + CI + **bundle
-ffmpeg** — see the **"Phase 5 — Packaging"** section above. Stage A is committed +
-pushed (`f613917`, GitHub `main`) and **live-run confirmed (2026-06-21)**. The
-whisper.cpp binary is gitignored — a fresh clone (and CI) must build it (steps in
-`.gitignore`).
+**Next action — finish Phase 5, Stage B:** (1) **commit + push** the Stage B tree
+(ffmpeg sidecar swap, `release.yml`, README) to GitHub `main`; (2) **push a `v*`
+tag** to validate the CI matrix live (it can't be proven any other way) and fix
+whatever the first run surfaces — see the "_Live validation needed_" notes in the
+Status section; (3) then **B2b — CUDA**: add NVIDIA installers (Linux/Windows),
+whose hard part is bundling `cudart`/`cublas` + the loader path, not the build
+(design captured in the Stage B status above). The whisper.cpp + ffmpeg sidecars are
+gitignored — a fresh clone (and CI) must build/fetch them (steps in `.gitignore`).
 
 _Resolved (Stage A):_ the old Phase 2 follow-up — the sidecar resolving the `.venv`
 python + script via compile-time `CARGO_MANIFEST_DIR` — is **gone**. The whisper-cli

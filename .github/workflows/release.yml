@@ -1,0 +1,173 @@
+name: release
+
+# Build self-contained installers and attach them to a GitHub release.
+# Tags only: the full matrix is expensive and cutting a release is deliberate.
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+env:
+  WHISPER_CPP_VERSION: v1.9.1
+
+jobs:
+  build:
+    name: ${{ matrix.variant }}
+    strategy:
+      # One backend failing must not block the others' installers.
+      fail-fast: false
+      matrix:
+        # ffmpeg is pinned to the 7.1 release line on every OS (not a rolling
+        # master), so all installers ship the same decoder behaviour. `args` is
+        # extra `tauri build` flags (only the CUDA variant needs any).
+        include:
+          - variant: linux-cpu
+            os: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+            exe: ""
+            whisper_bin: build/bin/whisper-cli
+            cmake_extra: ""
+            ffmpeg_url: https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-static.tar.xz
+            args: ""
+          - variant: windows-cpu
+            os: windows-latest
+            target: x86_64-pc-windows-msvc
+            exe: ".exe"
+            whisper_bin: build/bin/Release/whisper-cli.exe
+            cmake_extra: ""
+            ffmpeg_url: https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-n7.1-latest-win64-gpl-7.1.zip
+            args: ""
+          - variant: macos-metal
+            os: macos-14
+            target: aarch64-apple-darwin
+            exe: ""
+            whisper_bin: build/bin/whisper-cli
+            cmake_extra: "-DGGML_METAL_EMBED_LIBRARY=ON"
+            # No official static arm64 ffmpeg upstream; this third-party 7.1 build
+            # is pinned by hand. Bump the URL when the ffmpeg version moves.
+            ffmpeg_url: https://www.osxexperts.net/ffmpeg71arm.zip
+            args: ""
+          - variant: linux-cuda
+            os: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+            exe: ""
+            whisper_bin: build/bin/whisper-cli
+            cmake_extra: "-DGGML_CUDA=ON -DCMAKE_CUDA_ARCHITECTURES=all-major"
+            ffmpeg_url: https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-static.tar.xz
+            # `cuda` feature = fetch the CUDA libs on first run; distinct
+            # productName so the installer doesn't collide with linux-cpu's.
+            args: "--features cuda --config src-tauri/tauri.cuda.conf.json"
+
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      # The CUDA app fetches its runtime libs from the release at v{crate version},
+      # so fail early if the pushed tag doesn't match (else GPU first-run 404s).
+      - name: Check tag matches crate version (CUDA)
+        if: matrix.variant == 'linux-cuda'
+        run: |
+          version=$(grep -m1 '^version' app/src-tauri/Cargo.toml | cut -d'"' -f2)
+          [ "${{ github.ref_name }}" = "v$version" ] || {
+            echo "Tag ${{ github.ref_name }} != v$version (app/src-tauri/Cargo.toml)"; exit 1; }
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Install Linux build deps (Tauri)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev librsvg2-dev \
+            build-essential curl wget file libxdo-dev libssl-dev \
+            libayatana-appindicator3-dev
+
+      # CUDA toolkit only for the GPU build. No GPU is needed to compile; ubuntu's
+      # default gcc is an nvcc-supported host compiler.
+      - name: Install CUDA toolkit (CUDA)
+        if: matrix.variant == 'linux-cuda'
+        uses: Jimver/cuda-toolkit@v0.2.19
+        with:
+          cuda: "12.6.2"
+          method: network
+
+      # whisper-cli and ffmpeg are Tauri externalBin sidecars: each must exist at
+      # binaries/<name>-<triple>(.exe) BEFORE tauri builds, or the bundle step fails.
+      - name: Build whisper-cli sidecar
+        shell: bash
+        run: |
+          git clone --depth 1 --branch "$WHISPER_CPP_VERSION" \
+            https://github.com/ggml-org/whisper.cpp
+          cmake -S whisper.cpp -B whisper.cpp/build -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_SHARED_LIBS=OFF -DGGML_NATIVE=OFF ${{ matrix.cmake_extra }}
+          cmake --build whisper.cpp/build --config Release --target whisper-cli
+          mkdir -p app/src-tauri/binaries
+          cp "whisper.cpp/${{ matrix.whisper_bin }}" \
+            "app/src-tauri/binaries/whisper-cli-${{ matrix.target }}${{ matrix.exe }}"
+
+      # Strip the toolkit rpath so the CUDA binary uses only the libs the app fetches
+      # at runtime (via LD_LIBRARY_PATH), never a stray /usr/local/cuda on the user's box.
+      - name: Strip toolkit rpath (CUDA)
+        if: matrix.variant == 'linux-cuda'
+        run: |
+          sudo apt-get install -y patchelf
+          patchelf --remove-rpath "app/src-tauri/binaries/whisper-cli-${{ matrix.target }}"
+
+      - name: Fetch ffmpeg sidecar (Linux/macOS)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          curl -sL -o ffmpeg-archive "${{ matrix.ffmpeg_url }}"
+          case "${{ matrix.ffmpeg_url }}" in
+            *.tar.xz) tar -xf ffmpeg-archive ;;
+            *.zip) unzip -q ffmpeg-archive ;;
+          esac
+          out="app/src-tauri/binaries/ffmpeg-${{ matrix.target }}"
+          cp "$(find . -name ffmpeg -type f | head -1)" "$out"
+          chmod +x "$out"
+
+      - name: Fetch ffmpeg sidecar (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          Invoke-WebRequest "${{ matrix.ffmpeg_url }}" -OutFile ffmpeg.zip
+          Expand-Archive ffmpeg.zip -DestinationPath ffmpeg-dl
+          $bin = Get-ChildItem ffmpeg-dl -Recurse -Filter ffmpeg.exe | Select-Object -First 1
+          Copy-Item $bin.FullName "app/src-tauri/binaries/ffmpeg-${{ matrix.target }}.exe"
+
+      - name: Install frontend deps
+        working-directory: app
+        run: npm ci
+
+      - uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          projectPath: app
+          tagName: ${{ github.ref_name }}
+          releaseName: "transcriber ${{ github.ref_name }}"
+          releaseDraft: true
+          args: ${{ matrix.args }}
+
+      # The CUDA runtime libs are ~600 MB, so they're not bundled — the app fetches
+      # them on first run from this release. Publishing the draft makes them (and the
+      # installers) downloadable.
+      - name: Upload CUDA runtime libs to the release (CUDA)
+        if: matrix.variant == 'linux-cuda'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mkdir cuda-libs
+          # Keep this list in sync with CUDA_LIBS in app/src-tauri/src/lib.rs.
+          for lib in libcudart.so.12 libcublas.so.12 libcublasLt.so.12; do
+            cp -L "$(find /usr/local/cuda* -name "$lib" | head -1)" "cuda-libs/$lib"
+          done
+          gh release upload "${{ github.ref_name }}" cuda-libs/* --clobber
