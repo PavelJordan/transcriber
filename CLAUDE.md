@@ -22,8 +22,8 @@ Only transcript text is ever sent anywhere, and only after the user clicks send.
 
 The owner (a thesis student) uses this for supervisor consultations. The manual
 flow (run `transcribe.py`, paste transcript into ChatGPT/Claude) saves a lot of
-time and "nothing gets left out." See real outputs in `0608/` and `0617/` —
-those `.md` files are the **quality bar** for the generated report.
+time and "nothing gets left out." Real sample outputs are kept **privately,
+outside this repo** — they are the **quality bar** for the generated report.
 
 ## The stack (decided)
 
@@ -54,7 +54,7 @@ agent harness). They read different context files, so we keep one source of trut
 
 - `AGENTS.md` is a **symlink to `CLAUDE.md`** — `pi` reads `AGENTS.md`, Claude Code
   reads `CLAUDE.md`, both get the same map. Edit `CLAUDE.md`; never duplicate.
-- `pi` is configured globally (`~/.pi/agent/settings.json`) to use redacted's
+- `pi` is configured globally (`~/.pi/agent/settings.json`) to use a
   `claude-code-subscription-provider`, so it bills the **Claude subscription, not
   the API**. Just run `pi` in this folder. (The app's *own* Claude calls still use
   the user's Anthropic API token — that's a separate thing from the harness.)
@@ -64,7 +64,6 @@ agent harness). They read different context files, so we keep one source of trut
 | Path | What |
 |---|---|
 | `transcribe.py` | Local Whisper transcription. Reused as the app's sidecar. |
-| `0608/`, `0617/` | Real recordings + transcripts + **example reports** (quality bar). |
 | `docs/PLAN.md` | Architecture, rejected options, phased build plan, **current status**. |
 | `docs/STYLE.md` | Grug-brained code style. Read before coding. |
 | `docs/REVIEW.md` | The fresh-context review loop and when to run it. |

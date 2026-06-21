@@ -2,8 +2,8 @@ import type { Lang, StringKey } from "./i18n";
 
 // Output types for the Report screen. Labels/descriptions are localized via i18n
 // (appLang); each prompt is localized by output language (outputLang). The Czech
-// "Meeting report" prompt is derived from the example reports in 0608/ and 0617/
-// (the quality bar).
+// "Meeting report" prompt is derived from real example reports kept privately,
+// outside this repo (the quality bar).
 export type ReportType = {
   value: string;
   labelKey: StringKey;

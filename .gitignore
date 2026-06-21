@@ -9,6 +9,14 @@ __pycache__/
 *.wav
 *.m4a
 
+# Transcript outputs (transcribe.py) — private meeting content, never commit.
+# Real consultation samples live outside this repo. `git add -f` if you ever
+# genuinely need a .txt tracked.
+*.txt
+*.srt
+*.vtt
+transcribe.log
+
 # Local-only harness settings (bypass mode, personal allow rules)
 .claude/settings.local.json
 

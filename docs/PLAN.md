@@ -64,7 +64,7 @@ error — one channel, not two.
 ## The report prompt
 
 The app ships several **output types**, each a tuned system prompt: *Meeting
-report* (default, derived from the example reports in `0608/`/`0617/` so it
+report* (default, derived from real example reports kept outside the repo so it
 reproduces that Czech, structured-Markdown style), *Lecture notes* (nudges the
 model to sanity-check numbers/names/terms — lecture audio is worse, so it must flag
 likely mis-hearings rather than copy them in), *Summary*, and *Action items*. The

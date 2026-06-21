@@ -5,7 +5,7 @@ Grug-brain code style for this app. Read before writing code.
 > grug brain developer not so smart, but grug program many long year and learn
 > some things. complexity very, very bad. complexity is the enemy. grug fight it.
 
-Inspired by `~/Work/redacted/src/STYLE.md` and `AGENTS.md`. Same spirit, smaller
+Inspired by a larger project's `STYLE.md` and `AGENTS.md`. Same spirit, smaller
 project, web/Rust instead of Django.
 
 ## The prime directives
