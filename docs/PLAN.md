@@ -291,21 +291,26 @@ done; everything else above is opt-in.
 
 > **SESSION HANDOFF (2026-06-21, end of session) — read this first to continue.**
 >
-> **State:** All of Phase 5 Stage B (B1 ffmpeg sidecar + B2 CPU/Metal CI + B2b Linux
-> CUDA) is committed + pushed to GitHub `main` (`87fc3ee` code, `c351731` docs), and
-> the **`v0.1.0` tag is pushed** → the release CI (`.github/workflows/release.yml`)
-> is running. Its result was **not yet seen** (GitHub's API was 5xx'ing and `gh`
-> isn't installed locally). Nothing else in flight; working tree clean.
+> **State:** Phase 5 Stage B is pushed to GitHub `main`. The **`v0.1.0` release CI
+> ran**: the `linux-cuda` job built deb+rpm but **failed on AppImage**
+> (`failed to run linuxdeploy` — linuxdeploy can't resolve the rpath-stripped,
+> runtime-fetched CUDA libs of the whisper-cli sidecar). **Fixed** (`6f6da47`): the
+> CUDA overlay now pins `bundle.targets` to deb+rpm only. Re-cutting as **`v0.1.1`**
+> (version bumped in Cargo.toml/Cargo.lock/tauri.conf.json; avoids force-moving the
+> released v0.1.0 tag, and the CUDA lib URL is version-pinned). The other 3 jobs'
+> results from the v0.1.0 run still need checking. Working tree: fix + bump committed,
+> **v0.1.1 tag not yet pushed**.
 >
 > **Continue here (fresh session):**
-> 1. **Check the run:** https://github.com/PavelJordan/transcriber/actions — 4 jobs
->    (`linux-cpu`, `windows-cpu`, `macos-metal`, `linux-cuda`; `fail-fast: false`,
->    `linux-cuda` slowest). CLI: install `gh` (absent) or curl the public API
+> 1. **Push `v0.1.1`** to fire the matrix, then **check the run:**
+>    https://github.com/PavelJordan/transcriber/actions — 4 jobs (`linux-cpu`,
+>    `windows-cpu`, `macos-metal`, `linux-cuda`; `fail-fast: false`, `linux-cuda`
+>    slowest). CLI: install `gh` (absent) or curl the public API
 >    `repos/PavelJordan/transcriber/actions/runs`.
-> 2. **Fix whatever's red** — this CI is unrun, expect a first-pass fix. Prime
->    suspects (detail in the entries below): Jimver CUDA-action version + `cuda:
->    12.6.2`; Windows `whisper-cli` path `build/bin/Release/...exe` + VC++ runtime;
->    macOS arm64 ffmpeg URL (osxexperts); the CUDA `--config` path; Linux `libgomp`;
+> 2. **Fix whatever's red.** linux-cuda AppImage is handled; remaining prime suspects
+>    (detail in the entries below): Jimver CUDA-action version + `cuda: 12.6.2`;
+>    Windows `whisper-cli` path `build/bin/Release/...exe` + VC++ runtime; macOS arm64
+>    ffmpeg URL (osxexperts); the CUDA `--config` path; Linux `libgomp`;
 >    unsigned-launch UX.
 > 3. **Publish the draft release** the matrix creates — until published, the
 >    installers *and* the CUDA libs aren't downloadable (CUDA first-run would 404).
@@ -797,10 +802,11 @@ third-party/work references. Force-pushed to GitHub only. Never re-commit the
 samples (now gitignored: `*.txt`/`*.srt`/`*.vtt`/`transcribe.log`).
 
 **Next action — validate Stage B live.** All of Stage B (B1 ffmpeg + B2 CPU/Metal CI
-+ B2b Linux CUDA) is committed + pushed (87fc3ee, GitHub `main`), and the
-**`v0.1.0` tag is pushed** (matches the crate version per the CI guard) — the matrix
-is running. **Check the run, fix any red job, then publish the draft release** so the
-installers *and* the CUDA libs become downloadable. Fix whatever the first run
++ B2b Linux CUDA) is committed + pushed (87fc3ee, GitHub `main`). The **v0.1.0 run
+failed on the linux-cuda AppImage** (`linuxdeploy`); fixed by shipping CUDA as
+deb+rpm only (`6f6da47`), re-cutting as **`v0.1.1`**. **Push the v0.1.1 tag, check
+the run, fix any red job, then publish the draft release** so the installers *and*
+the CUDA libs become downloadable. Fix whatever the first run
 surfaces — see the "_Live validation needed_" notes + the B2b verify-live list above
 (Windows whisper path/VC++ runtime, macOS ffmpeg URL, Linux libgomp, Jimver action
 version, `--config` path, unsigned-launch UX). Then a real transcription per
