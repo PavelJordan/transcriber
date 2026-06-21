@@ -484,12 +484,20 @@ the local SSH keys aren't authorized for the `hissetta` namespace, but the `glab
 token is. Already configured in this clone (`credential.helper = !glab auth
 git-credential`). Don't switch the GitLab remote back to SSH.
 
-**Open source / GitHub:** MIT-licensed (`LICENSE`), public on GitHub at
-**`PavelJordan/transcriber`** (remote `github`,
-`git@github.com:PavelJordan/transcriber.git`, **SSH — verified working** for this
-account). Push to **both** remotes: `origin` (GitLab, HTTPS via glab) and `github`
-(SSH). GitHub is the open-source home and where Phase 5 CI (GitHub Actions) runs.
-The SSH caveat above is GitLab/`hissetta`-specific; GitHub SSH is fine.
+**Open source / GitHub (canonical home):** MIT-licensed (`LICENSE`), public at
+**`PavelJordan/transcriber`** (remote `github`, SSH — verified working). **Push to
+GitHub** (`git push github main`); Phase 5 CI (GitHub Actions) runs there.
+
+**GitLab `origin` is a stale private mirror.** `main` on `hissetta` is a protected
+branch, so the history scrub couldn't be force-pushed there — it still holds the
+old pre-scrub history and has **diverged** from local/GitHub. Don't expect `origin`
+pushes to fast-forward; treat GitHub as truth (or retire GitLab).
+
+**History scrub (done):** the public history was rewritten with `git-filter-repo`
+to (a) remove the private consultation samples `0608/` + `0617/` — **moved to
+`~/Thesis/consultations-private/`, kept locally** as the quality bar — and (b) scrub
+third-party/work references. Force-pushed to GitHub only. Never re-commit the
+samples (now gitignored: `*.txt`/`*.srt`/`*.vtt`/`transcribe.log`).
 
 **Next action — Phase 5, Stage A** (new session): swap the sidecar to whisper.cpp
 behind the unchanged UI — see the **"Phase 5 — Packaging"** section above for the
