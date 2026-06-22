@@ -134,7 +134,7 @@ jobs:
             *.tar.xz) tar -xf ffmpeg-archive ;;
             *.zip) unzip -q ffmpeg-archive ;;
           esac
-          out="app/src-tauri/binaries/ffmpeg-${{ matrix.target }}"
+          out="app/src-tauri/binaries/transcriber-ffmpeg-${{ matrix.target }}"
           cp "$(find . -name ffmpeg -type f | head -1)" "$out"
           chmod +x "$out"
 
@@ -145,7 +145,7 @@ jobs:
           Invoke-WebRequest "${{ matrix.ffmpeg_url }}" -OutFile ffmpeg.zip
           Expand-Archive ffmpeg.zip -DestinationPath ffmpeg-dl
           $bin = Get-ChildItem ffmpeg-dl -Recurse -Filter ffmpeg.exe | Select-Object -First 1
-          Copy-Item $bin.FullName "app/src-tauri/binaries/ffmpeg-${{ matrix.target }}.exe"
+          Copy-Item $bin.FullName "app/src-tauri/binaries/transcriber-ffmpeg-${{ matrix.target }}.exe"
 
       - name: Install frontend deps
         working-directory: app

@@ -193,7 +193,7 @@ async fn convert_to_wav(
     ];
     let (mut events, child) = app
         .shell()
-        .sidecar("ffmpeg")
+        .sidecar("transcriber-ffmpeg")
         .map_err(|err| err.to_string())?
         .args(args)
         .spawn()
