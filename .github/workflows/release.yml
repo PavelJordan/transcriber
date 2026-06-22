@@ -30,7 +30,7 @@ jobs:
             exe: ""
             whisper_bin: build/bin/whisper-cli
             cmake_extra: ""
-            ffmpeg_url: https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-static.tar.xz
+            ffmpeg_url: https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-n7.1-latest-linux64-gpl-7.1.tar.xz
             args: ""
           - variant: windows-cpu
             os: windows-latest
@@ -56,7 +56,7 @@ jobs:
             exe: ""
             whisper_bin: build/bin/whisper-cli
             cmake_extra: "-DGGML_CUDA=ON -DCMAKE_CUDA_ARCHITECTURES=all-major"
-            ffmpeg_url: https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-static.tar.xz
+            ffmpeg_url: https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-n7.1-latest-linux64-gpl-7.1.tar.xz
             # `cuda` feature = fetch the CUDA libs on first run; distinct
             # productName so the installer doesn't collide with linux-cpu's. The
             # config also limits bundling to deb+rpm: AppImage runs linuxdeploy,
@@ -129,7 +129,7 @@ jobs:
         if: runner.os != 'Windows'
         shell: bash
         run: |
-          curl -sL -o ffmpeg-archive "${{ matrix.ffmpeg_url }}"
+          curl -fsSL --retry 3 --retry-delay 5 -o ffmpeg-archive "${{ matrix.ffmpeg_url }}"
           case "${{ matrix.ffmpeg_url }}" in
             *.tar.xz) tar -xf ffmpeg-archive ;;
             *.zip) unzip -q ffmpeg-archive ;;
